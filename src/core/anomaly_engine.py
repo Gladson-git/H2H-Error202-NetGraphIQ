@@ -1,6 +1,5 @@
 """
-Anomaly Detection Engine - Identifies abnormal network behavior
-Compares current traffic against baselines with severity classification
+Anomaly Detection Engine - Identifies abnormal network behavior with root cause analysis
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -142,12 +141,78 @@ class AnomalyEngine:
             'severity': severity.value,
             'anomaly_type': anomaly_type.value,
             'description': description,
-            'short_reason': short_reason,  # NEW: Short reason for display
-            'telemetry_reason': telemetry_reason,  # NEW: Reason from telemetry engine
+            'short_reason': short_reason,
+            'telemetry_reason': telemetry_reason,
             'recommendation': self._get_recommendation(severity, anomaly_type, device)
         }
         
         return anomaly
+    
+    def find_root_cause(self, anomalies: List[Dict], graph) -> Optional[Dict]:
+        """
+        Find root cause of anomalies based on spike ratio and connectivity
+        
+        Logic: score = spike_ratio × degree (number of connections)
+        Device with highest score is the root cause
+        
+        Args:
+            anomalies: List of detected anomalies
+            graph: NetworkX graph of the topology
+        
+        Returns:
+            Anomaly dictionary of the root cause device, or None if no anomalies
+        """
+        if not anomalies:
+            return None
+        
+        root_candidates = []
+        
+        for anomaly in anomalies:
+            device_id = anomaly['device_id']
+            spike_ratio = anomaly['spike_ratio']
+            
+            # Get degree (number of connections)
+            degree = graph.degree(device_id) if graph and graph.has_node(device_id) else 0
+            
+            # Score = spike_ratio × (degree + 1) - add 1 to avoid zero for isolated devices
+            score = spike_ratio * (degree + 1)
+            
+            root_candidates.append({
+                'anomaly': anomaly,
+                'score': score,
+                'degree': degree,
+                'spike_ratio': spike_ratio
+            })
+        
+        # Sort by score descending and return highest
+        root_candidates.sort(key=lambda x: x['score'], reverse=True)
+        best = root_candidates[0]
+        
+        # Add root cause specific information
+        root_cause_anomaly = best['anomaly'].copy()
+        root_cause_anomaly['root_cause_score'] = round(best['score'], 2)
+        root_cause_anomaly['connection_count'] = best['degree']
+        root_cause_anomaly['impact_analysis'] = self._generate_impact_analysis(best)
+        
+        return root_cause_anomaly
+    
+    def _generate_impact_analysis(self, candidate: Dict) -> str:
+        """Generate human-readable impact analysis for root cause"""
+        anomaly = candidate['anomaly']
+        score = candidate['score']
+        degree = candidate['degree']
+        spike_ratio = candidate['spike_ratio']
+        
+        if degree > 5:
+            spread = "highly connected"
+        elif degree > 2:
+            spread = "moderately connected"
+        else:
+            spread = "minimally connected"
+        
+        return (f"Device {anomaly['device_name']} is the primary source of anomaly with "
+                f"{spike_ratio:.1f}x normal traffic. It is {spread} ({degree} connections), "
+                f"potentially affecting {degree} neighboring devices. Impact score: {score:.1f}")
     
     def _get_layer_value(self, device) -> str:
         """Get layer value as string"""
@@ -205,48 +270,6 @@ class AnomalyEngine:
             'by_type': by_type,
             'recent': self.anomaly_history[-10:]  # Last 10 anomalies
         }
-    
-    def print_anomalies(self, anomalies: List[Dict], limit: int = 20):
-        """Pretty print detected anomalies with timestamps and short reasons"""
-        if not anomalies:
-            print("\n" + "=" * 80)
-            print("✅ NO ANOMALIES DETECTED")
-            print("=" * 80)
-            print("\n   All devices operating within normal parameters")
-            return
-        
-        print("\n" + "=" * 80)
-        print(f"🚨 ANOMALIES DETECTED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("=" * 80)
-        
-        for i, anomaly in enumerate(anomalies[:limit], 1):
-            # Severity icon
-            severity_icon = {
-                'critical': '🔴',
-                'high': '🟠',
-                'medium': '🟡',
-                'low': '🔵'
-            }.get(anomaly['severity'], '⚪')
-            
-            print(f"\n{severity_icon} Anomaly #{i}: {anomaly['device_name']} [{anomaly['short_reason']}]")
-            print(f"   {'─' * 70}")
-            print(f"   🕐 Timestamp:    {anomaly['timestamp']}")
-            print(f"   📍 Layer:        {anomaly['layer'].upper()}")
-            print(f"   📊 Type:         {anomaly['anomaly_type'].replace('_', ' ').title()}")
-            print(f"   ⚠️  Severity:     {anomaly['severity'].upper()}")
-            print(f"   📈 Baseline:     {anomaly['baseline_traffic']} pkts/sec")
-            print(f"   📉 Current:      {anomaly['current_traffic']} pkts/sec")
-            print(f"   🔥 Spike Ratio:  {anomaly['spike_ratio']}x baseline")
-            print(f"   📝 Description:  {anomaly['description']}")
-            
-            # Show telemetry reason if available
-            if anomaly.get('telemetry_reason'):
-                print(f"   🔍 Root Cause:   {anomaly['telemetry_reason']}")
-            
-            print(f"   💡 Recommendation: {anomaly['recommendation']}")
-        
-        if len(anomalies) > limit:
-            print(f"\n   ... and {len(anomalies) - limit} more anomalies")
     
     def get_layer_risk_assessment(self, anomalies: List[Dict]) -> Dict:
         """

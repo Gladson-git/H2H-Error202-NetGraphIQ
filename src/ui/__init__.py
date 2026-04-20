@@ -1,7 +1,7 @@
 """
-User Interface modules for NetGraphIQ
+UI modules for NetGraphIQ
 """
 
-from .dashboard import LiveDashboard, PacketFlowSimulator
+from .final_dashboard import FinalDashboard, PacketFlowSimulator
 
-__all__ = ['LiveDashboard', 'PacketFlowSimulator']
+__all__ = ['FinalDashboard', 'PacketFlowSimulator']
