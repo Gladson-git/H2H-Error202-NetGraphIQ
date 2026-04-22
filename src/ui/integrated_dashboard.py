@@ -1,7 +1,6 @@
 """
-NetGraphIQ - Complete Integrated Dashboard
-Combines existing features with ML, GNN, Fingerprinting, and Attack Simulation
-All existing functionality preserved - new features added as extensions
+NetGraphIQ - Complete Integrated Dashboard with Hierarchical Visualization
+Industry-grade UI with root cause propagation and modern styling
 """
 
 import streamlit as st
@@ -16,14 +15,13 @@ import sys
 import os
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
+from collections import deque
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.network_generator import NetworkGenerator
 from src.core.telemetry_engine import TelemetryEngine
 from src.core.anomaly_engine import AnomalyEngine
-
-# NEW IMPORTS - Added without breaking existing code
 from src.storage.telemetry_storage import TelemetryStorage
 from src.ml.ml_anomaly import MLAnomalyDetector
 from src.ml.gnn_model import GNNAnomalyDetector
@@ -132,7 +130,7 @@ class PacketFlowSimulator:
 
 
 class IntegratedDashboard:
-    """Complete integrated dashboard with all features preserved and enhanced"""
+    """Complete integrated dashboard with hierarchical visualization and modern UI"""
     
     def __init__(self):
         self._init_session_state()
@@ -153,6 +151,8 @@ class IntegratedDashboard:
             st.session_state.attack_mode = False
             st.session_state.last_update = datetime.now()
             st.session_state.root_cause = None
+            st.session_state.propagation_path = []
+            st.session_state.impact_devices = 0
             
             # NEW state for enhanced features
             st.session_state.storage = None
@@ -165,6 +165,91 @@ class IntegratedDashboard:
             st.session_state.simulate_attack = False
             st.session_state.attack_type = AttackType.NONE
     
+    def _get_layer_level(self, layer: str) -> int:
+        """Get vertical level for hierarchical layout"""
+        layer_levels = {
+            'edge': 3,
+            'core': 2,
+            'access': 1,
+            'endpoint': 0
+        }
+        return layer_levels.get(layer.lower(), 1)
+    
+    def _calculate_hierarchical_positions(self, graph: nx.Graph) -> Dict:
+        """Calculate positions for hierarchical layout (layers stacked vertically)"""
+        pos = {}
+        
+        # Group nodes by layer
+        layer_nodes = defaultdict(list)
+        for node, attrs in graph.nodes(data=True):
+            layer = attrs.get('layer', 'endpoint')
+            layer_nodes[layer].append(node)
+        
+        # Define layer Y positions (higher Y = higher in graph)
+        y_positions = {
+            'edge': 3.0,
+            'core': 2.0,
+            'access': 1.0,
+            'endpoint': 0.0
+        }
+        
+        # Position nodes within each layer
+        for layer, nodes in layer_nodes.items():
+            y = y_positions.get(layer, 1.0)
+            num_nodes = len(nodes)
+            
+            for i, node in enumerate(nodes):
+                # Spread nodes horizontally
+                x = (i - (num_nodes - 1) / 2) * 1.5
+                pos[node] = (x, y)
+        
+        # Fine-tune positions to reduce edge crossings
+        for edge in graph.edges():
+            node1, node2 = edge
+            if node1 in pos and node2 in pos:
+                # Slight adjustment for better alignment
+                pass
+        
+        return pos
+    
+    def _find_propagation_path(self, root_device_id: str, graph: nx.Graph, depth: int = 2) -> Tuple[List[str], int]:
+        """
+        Find propagation path from root cause using BFS
+        Returns (path_nodes, total_affected_devices)
+        """
+        if not root_device_id or not graph.has_node(root_device_id):
+            return [], 0
+        
+        visited = set()
+        queue = deque([(root_device_id, 0)])
+        path = [root_device_id]
+        affected_devices = set()
+        
+        while queue:
+            node, level = queue.popleft()
+            if level >= depth:
+                continue
+            
+            for neighbor in graph.neighbors(node):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    affected_devices.add(neighbor)
+                    if level < depth - 1:
+                        queue.append((neighbor, level + 1))
+                        if neighbor not in path:
+                            path.append(neighbor)
+        
+        # Get device names for path
+        device_names = []
+        for node_id in path[:depth + 2]:  # Limit path length
+            device = st.session_state.devices.get(node_id)
+            if device:
+                device_names.append(device.name)
+            else:
+                device_names.append(node_id[:8])
+        
+        return device_names, len(affected_devices)
+    
     def generate_network(self):
         """Generate complete network topology with all components"""
         with st.spinner("🌐 Generating enterprise network topology..."):
@@ -174,7 +259,7 @@ class IntegratedDashboard:
             # Build graph
             graph = nx.Graph()
             for device_id, device in devices.items():
-                layer_value = device.layer.value if hasattr(device, 'layer') else 'unknown'
+                layer_value = device.layer.value if hasattr(device, 'layer') else 'endpoint'
                 graph.add_node(
                     device_id,
                     name=device.name,
@@ -242,12 +327,12 @@ class IntegratedDashboard:
         # NEW: ML anomalies (Isolation Forest)
         ml_anomalies = st.session_state.ml_detector.detect_anomalies(current_metrics)
         
-        # NEW: GNN anomalies (Graph Neural Network) - FIXED VERSION
+        # NEW: GNN anomalies (Graph Neural Network)
         gnn_anomalies = st.session_state.gnn_detector.detect(
             st.session_state.graph, st.session_state.devices, current_metrics
         )
         
-        # Store telemetry to CSV (NEW)
+        # Store telemetry to CSV
         for device_id, data in current_metrics.items():
             device = st.session_state.devices.get(device_id)
             if device:
@@ -257,7 +342,7 @@ class IntegratedDashboard:
                     data['is_anomaly']
                 )
         
-        # Update packet simulator with anomaly IDs (from all detection methods)
+        # Update packet simulator with anomaly IDs
         all_anomaly_ids = set()
         for a in rule_anomalies:
             all_anomaly_ids.add(a['device_id'])
@@ -273,45 +358,55 @@ class IntegratedDashboard:
         st.session_state.ml_anomalies = ml_anomalies
         st.session_state.gnn_anomalies = gnn_anomalies
         
-        # Find root cause using rule-based anomalies (existing logic)
+        # Find root cause using rule-based anomalies
         if st.session_state.graph and rule_anomalies:
             st.session_state.root_cause = st.session_state.anomaly_engine.find_root_cause(
                 rule_anomalies, st.session_state.graph
             )
+            
+            # Calculate propagation path from root cause
+            if st.session_state.root_cause:
+                path, impact_count = self._find_propagation_path(
+                    st.session_state.root_cause['device_id'],
+                    st.session_state.graph,
+                    depth=2
+                )
+                st.session_state.propagation_path = path
+                st.session_state.impact_devices = impact_count
         else:
             st.session_state.root_cause = None
+            st.session_state.propagation_path = []
+            st.session_state.impact_devices = 0
         
         st.session_state.last_update = datetime.now()
         st.session_state.attack_mode = attack_mode
         
         return rule_anomalies, ml_anomalies, gnn_anomalies
     
-    def draw_network_graph(self):
-        """Draw network topology with anomaly highlighting (preserved from original)"""
+    def draw_network_graph_hierarchical(self):
+        """Draw network topology with hierarchical layer-based layout"""
         if not st.session_state.graph:
             return None
         
-        fig, ax = plt.subplots(figsize=(14, 10), facecolor='white')
-        pos = nx.spring_layout(st.session_state.graph, k=2, iterations=50, seed=42)
+        fig, ax = plt.subplots(figsize=(14, 10), facecolor='#F5F7FA')
+        
+        # Calculate hierarchical positions
+        pos = self._calculate_hierarchical_positions(st.session_state.graph)
         
         # Get all anomaly IDs from all detection methods
         rule_anomaly_ids = {a['device_id'] for a in st.session_state.anomalies}
         ml_anomaly_ids = {a['device_id'] for a in st.session_state.ml_anomalies}
         gnn_anomaly_ids = {a['device_id'] for a in st.session_state.gnn_anomalies}
+        root_cause_id = st.session_state.root_cause['device_id'] if st.session_state.root_cause else None
         
-        # Draw edges with styles based on packet flow
+        # Draw edges with styles
         for edge in st.session_state.graph.edges():
             color, width, alpha, flow_count = st.session_state.packet_simulator.get_edge_style(edge)
             
-            if flow_count > 5:
-                nx.draw_networkx_edges(
-                    st.session_state.graph, pos,
-                    edgelist=[edge],
-                    edge_color=color,
-                    width=width + 2,
-                    alpha=0.3,
-                    ax=ax
-                )
+            # Thicker edges for anomaly connections
+            if edge[0] in rule_anomaly_ids or edge[1] in rule_anomaly_ids:
+                width = width + 1.5
+                color = '#E74C3C'
             
             nx.draw_networkx_edges(
                 st.session_state.graph, pos,
@@ -333,27 +428,30 @@ class IntegratedDashboard:
                         t = packet['progress']
                         px = x0 + t * (x1 - x0)
                         py = y0 + t * (y1 - y0)
-                        ax.scatter(px, py, c='#FFD700', s=50, zorder=5, 
-                                  edgecolors='black', linewidths=1)
+                        ax.scatter(px, py, c='#FFD700', s=60, zorder=5, 
+                                  edgecolors='black', linewidths=1.5)
         
         # Draw nodes with different colors based on detection method
         for node in st.session_state.graph.nodes():
-            if node in rule_anomaly_ids:
-                color, size, edgecolor = '#E74C3C', 600, 'darkred'  # Red - Rule anomaly
+            # Determine node style
+            if node == root_cause_id:
+                color, size, edgecolor, linewidth = '#FF6B6B', 800, 'darkred', 3.5  # Root cause - larger, glow
+            elif node in rule_anomaly_ids:
+                color, size, edgecolor, linewidth = '#E74C3C', 600, 'darkred', 2.5
             elif node in ml_anomaly_ids:
-                color, size, edgecolor = '#9B59B6', 550, 'purple'   # Purple - ML anomaly
+                color, size, edgecolor, linewidth = '#9B59B6', 550, 'purple', 2.5
             elif node in gnn_anomaly_ids:
-                color, size, edgecolor = '#FF8C00', 550, 'darkorange'  # Orange - GNN anomaly
+                color, size, edgecolor, linewidth = '#FF8C00', 550, 'darkorange', 2.5
             else:
-                color, size, edgecolor = '#4A90E2', 450, 'black'   # Blue - Normal
+                color, size, edgecolor, linewidth = '#4A90E2', 450, 'black', 1.5
             
-            # Outer glow for anomalies
-            if node in rule_anomaly_ids or node in ml_anomaly_ids or node in gnn_anomaly_ids:
+            # Outer glow for root cause
+            if node == root_cause_id:
                 nx.draw_networkx_nodes(
                     st.session_state.graph, pos,
                     nodelist=[node],
                     node_color=color,
-                    node_size=size + 100,
+                    node_size=size + 150,
                     alpha=0.3,
                     ax=ax
                 )
@@ -365,7 +463,7 @@ class IntegratedDashboard:
                 node_size=size,
                 alpha=0.95,
                 edgecolors=edgecolor,
-                linewidths=2.5,
+                linewidths=linewidth,
                 ax=ax
             )
         
@@ -376,8 +474,9 @@ class IntegratedDashboard:
             if len(name) > 15:
                 name = name[:12] + '..'
             
-            # Add indicator based on detection type
-            if node in rule_anomaly_ids:
+            if node == root_cause_id:
+                name = f"🎯 {name}"
+            elif node in rule_anomaly_ids:
                 name = f"🔴 {name}"
             elif node in ml_anomaly_ids:
                 name = f"🤖 {name}"
@@ -394,20 +493,27 @@ class IntegratedDashboard:
             ax=ax
         )
         
-        ax.set_title("🌐 Network Topology with Multi-Layer Anomaly Detection", 
-                    fontsize=14, fontweight='bold')
+        # Add layer annotations
+        layer_y_positions = {'EDGE': 3.0, 'CORE': 2.0, 'ACCESS': 1.0, 'ENDPOINT': 0.0}
+        for layer, y in layer_y_positions.items():
+            ax.text(-2.5, y, f"─── {layer} LAYER ───", fontsize=10, 
+                   fontweight='bold', color='#7F8C8D', alpha=0.7,
+                   transform=ax.transData)
+        
+        ax.set_title("🌐 Hierarchical Network Topology with Multi-Layer Anomaly Detection", 
+                    fontsize=16, fontweight='bold', pad=20)
         ax.axis('off')
         
         # Enhanced Legend
         legend_elements = [
             Patch(facecolor='#4A90E2', edgecolor='black', label='Normal Device'),
+            Patch(facecolor='#FF6B6B', edgecolor='darkred', label='🎯 Root Cause Device'),
             Patch(facecolor='#E74C3C', edgecolor='darkred', label='🔴 Rule-based Anomaly'),
-            Patch(facecolor='#9B59B6', edgecolor='purple', label='🤖 ML Anomaly (Isolation Forest)'),
-            Patch(facecolor='#FF8C00', edgecolor='darkorange', label='🕸️ GNN Anomaly (Graph Neural Network)'),
+            Patch(facecolor='#9B59B6', edgecolor='purple', label='🤖 ML Anomaly'),
+            Patch(facecolor='#FF8C00', edgecolor='darkorange', label='🕸️ GNN Anomaly'),
             plt.Line2D([0], [0], color='#95A5A6', linewidth=2, label='Normal Connection'),
             plt.Line2D([0], [0], color='#FFA500', linewidth=3.5, label='📡 Active Packet Flow'),
-            plt.Line2D([0], [0], color='#FF4500', linewidth=5, label='🔥 High Traffic Flow'),
-            plt.Line2D([0], [0], color='#E74C3C', linewidth=2.5, label='Connection to Anomaly'),
+            plt.Line2D([0], [0], color='#E74C3C', linewidth=3, label='⚠️ Connection to Anomaly'),
             plt.Line2D([0], [0], color='#FFD700', marker='o', markersize=8, linestyle='None',
                       label='💫 Moving Packets')
         ]
@@ -417,7 +523,7 @@ class IntegratedDashboard:
         return fig
     
     def draw_packet_flow_metrics(self):
-        """Draw enhanced packet flow metrics panel (preserved from original)"""
+        """Draw enhanced packet flow metrics panel"""
         if not st.session_state.packet_simulator:
             return None
         
@@ -426,12 +532,12 @@ class IntegratedDashboard:
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("📦 Total Packets Sent", stats['total_packets'],
+            st.metric("📦 Total Packets", stats['total_packets'],
                      delta=f"+{stats['active_flows']} active")
         
         with col2:
             st.metric("⚡ Active Flows", stats['active_flows'],
-                     delta="🔴 High" if st.session_state.attack_mode else "🟢 Normal")
+                     delta="🔴 HIGH" if st.session_state.attack_mode else "🟢 NORMAL")
         
         with col3:
             st.metric("✨ Animated Packets", stats['animated_packets'], delta="Moving")
@@ -439,7 +545,7 @@ class IntegratedDashboard:
         with col4:
             if stats['most_active_edge']:
                 edge = stats['most_active_edge']
-                st.metric("🔥 Busiest Link", f"{edge[0][:8]}→{edge[1][:8]}",
+                st.metric("🔥 Busiest Link", f"{edge[0][:6]}→{edge[1][:6]}",
                          delta=f"{stats['total_flows']} flows")
             else:
                 st.metric("🔥 Busiest Link", "None", delta="No traffic")
@@ -448,11 +554,11 @@ class IntegratedDashboard:
                    text=f"📊 Network Traffic Intensity: {stats['active_flows']} active flows")
     
     def draw_traffic_heatmap(self):
-        """Draw real-time traffic heatmap by layer (preserved from original)"""
+        """Draw real-time traffic heatmap by layer"""
         if not st.session_state.devices:
             return None
         
-        fig, ax = plt.subplots(figsize=(10, 4))
+        fig, ax = plt.subplots(figsize=(10, 4), facecolor='#F5F7FA')
         
         layer_traffic = {'edge': 0, 'core': 0, 'access': 0, 'endpoint': 0}
         layer_counts = {'edge': 0, 'core': 0, 'access': 0, 'endpoint': 0}
@@ -476,40 +582,54 @@ class IntegratedDashboard:
         colors = ['#E74C3C' if layer.lower() in anomaly_layers else '#4A90E2' 
                   for layer in layers]
         
-        bars = ax.bar(layers, values, color=colors, alpha=0.8)
-        ax.set_ylabel('Avg Traffic (pkts/sec)')
-        ax.set_title('Network Layer Traffic Distribution')
+        bars = ax.bar(layers, values, color=colors, alpha=0.8, edgecolor='black', linewidth=1)
+        ax.set_ylabel('Avg Traffic (pkts/sec)', fontsize=11)
+        ax.set_title('Network Layer Traffic Distribution', fontsize=13, fontweight='bold')
+        ax.set_facecolor('#F5F7FA')
         
         for bar, value in zip(bars, values):
             ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 5,
-                   f'{value:.0f}', ha='center', va='bottom', fontsize=9)
+                   f'{value:.0f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
         
         flow_stats = st.session_state.packet_simulator.get_flow_statistics()
         ax.text(0.98, 0.95, f"📡 Active Flows: {flow_stats['active_flows']}", 
                transform=ax.transAxes, ha='right', va='top',
-               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
         
         plt.tight_layout()
         return fig
     
     def render_sidebar(self):
-        """Render sidebar controls with new attack simulation options"""
-        st.sidebar.title("🎮 NetGraphIQ Controls")
+        """Render modern sidebar controls with grouped sections"""
+        st.sidebar.markdown("""
+        <style>
+        .sidebar-section {
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+            margin-bottom: 10px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
         
-        if st.sidebar.button("🔄 Generate Network", use_container_width=True, type="primary"):
+        st.sidebar.title("🎮 NetGraphIQ")
+        
+        # Network Section
+        st.sidebar.markdown("### 🌐 Network")
+        if st.sidebar.button("🔄 Generate New Network", use_container_width=True, type="primary"):
             self.generate_network()
             st.rerun()
         
-        st.sidebar.divider()
+        st.sidebar.markdown("---")
         
-        st.sidebar.subheader("⚙️ Display Settings")
+        # Display Section
+        st.sidebar.markdown("### ⚙️ Display")
         show_anomalies = st.sidebar.toggle("🔴 Show Anomalies", value=True)
         show_animation = st.sidebar.toggle("✨ Live Packet Animation", value=True)
         
-        st.sidebar.divider()
+        st.sidebar.markdown("---")
         
-        # NEW: Attack Simulation Controls
-        st.sidebar.subheader("🎯 Attack Simulation")
+        # Attack Section
+        st.sidebar.markdown("### 🎯 Attack Simulation")
         simulate_attack = st.sidebar.toggle(
             "⚠️ Simulate Attack Mode",
             value=False,
@@ -519,7 +639,8 @@ class IntegratedDashboard:
         if simulate_attack:
             attack_type = st.sidebar.selectbox(
                 "Attack Type",
-                ["DDoS", "MAC Spoofing", "Device Failure"]
+                ["DDoS", "MAC Spoofing", "Device Failure"],
+                help="Select attack type to simulate"
             )
             attack_map = {
                 "DDoS": AttackType.DDOS,
@@ -528,19 +649,21 @@ class IntegratedDashboard:
             }
             st.session_state.attack_type = attack_map[attack_type]
             
-            st.sidebar.warning("🔴 **ATTACK MODE ACTIVE**\n\n• 30% anomaly probability\n• 3.5-6x traffic spikes\n• Simulating attack behavior")
+            st.sidebar.warning("🔴 **ATTACK MODE ACTIVE**\n\n• 30% anomaly probability\n• 3.5-6x traffic spikes")
         else:
             st.session_state.attack_type = AttackType.NONE
         
         st.session_state.simulate_attack = simulate_attack
         
-        st.sidebar.divider()
+        st.sidebar.markdown("---")
         
-        auto_refresh = st.sidebar.toggle("🔄 Auto Refresh", value=True)
+        # Refresh Section
+        st.sidebar.markdown("### 🔄 Refresh")
+        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
         
         if auto_refresh:
             refresh_rate = st.sidebar.select_slider(
-                "Refresh Rate (seconds)",
+                "Refresh Rate",
                 options=[2, 3, 5, 10],
                 value=3
             )
@@ -550,37 +673,82 @@ class IntegratedDashboard:
         return show_anomalies, show_animation, simulate_attack, auto_refresh, refresh_rate
     
     def render_metrics(self):
-        """Render enhanced metrics panel with all detection methods"""
+        """Render modern metric cards"""
         st.markdown("### 📊 System Metrics")
         
+        # Create styled metric cards using columns
         col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
         
         with col1:
-            st.metric("🖥️ Devices", len(st.session_state.devices) if st.session_state.devices else 0)
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                        padding: 15px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0;">{}</h3>
+                <p style="color: white; margin: 0; opacity: 0.9;">🖥️ Devices</p>
+            </div>
+            """.format(len(st.session_state.devices) if st.session_state.devices else 0), unsafe_allow_html=True)
         
         with col2:
-            st.metric("🔗 Connections", len(st.session_state.connections) if st.session_state.connections else 0)
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                        padding: 15px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0;">{}</h3>
+                <p style="color: white; margin: 0; opacity: 0.9;">🔗 Connections</p>
+            </div>
+            """.format(len(st.session_state.connections) if st.session_state.connections else 0), unsafe_allow_html=True)
         
         with col3:
-            st.metric("⚠️ Rule", len(st.session_state.anomalies))
+            anomaly_color = "#E74C3C" if len(st.session_state.anomalies) > 0 else "#27AE60"
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, {anomaly_color} 0%, #c0392b 100%); 
+                        padding: 15px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0;">{len(st.session_state.anomalies)}</h3>
+                <p style="color: white; margin: 0; opacity: 0.9;">⚠️ Rule</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         with col4:
-            st.metric("🤖 ML", len(st.session_state.ml_anomalies))
+            ml_color = "#9B59B6" if len(st.session_state.ml_anomalies) > 0 else "#27AE60"
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, {ml_color} 0%, #8e44ad 100%); 
+                        padding: 15px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0;">{len(st.session_state.ml_anomalies)}</h3>
+                <p style="color: white; margin: 0; opacity: 0.9;">🤖 ML</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         with col5:
-            st.metric("🕸️ GNN", len(st.session_state.gnn_anomalies))
+            gnn_color = "#FF8C00" if len(st.session_state.gnn_anomalies) > 0 else "#27AE60"
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, {gnn_color} 0%, #e67e22 100%); 
+                        padding: 15px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0;">{len(st.session_state.gnn_anomalies)}</h3>
+                <p style="color: white; margin: 0; opacity: 0.9;">🕸️ GNN</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         with col6:
             active_flows = len(st.session_state.packet_simulator.active_edges) if st.session_state.packet_simulator else 0
-            st.metric("📡 Active Flows", active_flows)
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); 
+                        padding: 15px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0;">{active_flows}</h3>
+                <p style="color: white; margin: 0; opacity: 0.9;">📡 Active Flows</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         with col7:
-            if st.session_state.simulate_attack:
-                st.metric("⚠️ Attack", "ACTIVE", delta=st.session_state.attack_type.value.upper())
-            else:
-                st.metric("✅ Attack", "Inactive")
+            attack_status = "ACTIVE" if st.session_state.simulate_attack else "INACTIVE"
+            attack_color = "#E74C3C" if st.session_state.simulate_attack else "#27AE60"
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, {attack_color} 0%, #c0392b 100%); 
+                        padding: 15px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0; font-size: 14px;">{attack_status}</h3>
+                <p style="color: white; margin: 0; opacity: 0.9;">🎯 Attack</p>
+            </div>
+            """, unsafe_allow_html=True)
         
-        # Second row - Additional metrics
+        # Second row - Health metrics
         st.markdown("---")
         col8, col9, col10, col11 = st.columns(4)
         
@@ -598,7 +766,6 @@ class IntegratedDashboard:
                 st.metric("🎯 Root Cause", "None Detected")
         
         with col10:
-            total_devices = len(st.session_state.devices) if st.session_state.devices else 1
             total_anomalies = len(st.session_state.anomalies) + len(st.session_state.ml_anomalies) + len(st.session_state.gnn_anomalies)
             health_percent = max(0, 100 - (total_anomalies * 3))
             st.metric("💚 Network Health", f"{health_percent}%")
@@ -611,11 +778,12 @@ class IntegratedDashboard:
                 st.metric("🕸️ GNN Status", "Standby", delta="Waiting")
     
     def render_fingerprint_insights(self):
-        """Display device fingerprinting insights (NEW)"""
+        """Display device fingerprinting insights"""
         if not st.session_state.fingerprinter:
             return
         
-        st.subheader("🔍 Device Fingerprinting (Behavior-Based Classification)")
+        st.markdown("### 🔍 Device Fingerprinting")
+        st.markdown("*Behavior-based device classification*")
         
         insights = st.session_state.fingerprinter.get_category_insights()
         
@@ -624,18 +792,15 @@ class IntegratedDashboard:
             with cols[i]:
                 st.metric(category.replace('_', ' ').title(), count)
         
-        # Category risk assessment
         if st.session_state.anomalies:
-            risk = st.session_state.fingerprinter.get_category_risk_assessment(
-                st.session_state.anomalies
-            )
-            high_risk_categories = [f"{k}: {v}" for k, v in risk.items() if v > 0]
-            if high_risk_categories:
-                st.caption("🎯 Risk by Category: " + ", ".join(high_risk_categories))
+            risk = st.session_state.fingerprinter.get_category_risk_assessment(st.session_state.anomalies)
+            high_risk = [f"{k}: {v}" for k, v in risk.items() if v > 0]
+            if high_risk:
+                st.caption("🎯 Risk by Category: " + ", ".join(high_risk))
     
     def render_detection_summary(self):
-        """Render summary of all detection methods (NEW)"""
-        st.subheader("📊 Multi-Layer Detection Summary")
+        """Render summary of all detection methods"""
+        st.markdown("### 🧠 Multi-Layer Detection Summary")
         
         col1, col2, col3 = st.columns(3)
         
@@ -649,13 +814,16 @@ class IntegratedDashboard:
             st.info(f"**GNN Detection**\n\n• {len(st.session_state.gnn_anomalies)} anomalies\n• Graph-aware detection\n• Captures propagation patterns")
     
     def render_root_cause(self):
-        """Render root cause detection panel (preserved from original)"""
+        """Render enhanced root cause panel with propagation path"""
         if st.session_state.root_cause:
             rc = st.session_state.root_cause
             
+            # Build propagation path string
+            path_str = " → ".join(st.session_state.propagation_path[:5]) if st.session_state.propagation_path else "None"
+            
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                        padding: 20px; border-radius: 10px; margin: 10px 0;">
+                        padding: 20px; border-radius: 12px; margin: 10px 0; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
                 <h3 style="color: white; margin: 0;">🎯 ROOT CAUSE ANALYSIS</h3>
                 <hr style="background: white; margin: 10px 0;">
                 <p style="color: white; margin: 5px 0 0 0; font-size: 18px;">
@@ -670,6 +838,12 @@ class IntegratedDashboard:
                 <p style="color: #FFE66D; margin: 10px 0 0 0; font-size: 14px;">
                     <strong>💡 Impact Analysis:</strong> {rc.get('impact_analysis', 'Device is primary anomaly source')}
                 </p>
+                <p style="color: white; margin: 10px 0 0 0; font-size: 14px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px;">
+                    <strong>🌊 Affected Path:</strong> {path_str}
+                </p>
+                <p style="color: #FFE66D; margin: 5px 0 0 0; font-size: 12px;">
+                    <strong>📊 Potential Impact Devices:</strong> {st.session_state.impact_devices}
+                </p>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -677,34 +851,29 @@ class IntegratedDashboard:
                 st.success("✅ **No root cause detected** - Network operating within normal parameters")
     
     def render_telemetry_storage(self):
-        """Render collapsible telemetry storage section (NEW)"""
+        """Render collapsible telemetry storage section"""
         if not st.session_state.storage:
             return
         
         with st.expander("📁 Telemetry Storage (Recent Data)"):
-            # Get telemetry data
             df = st.session_state.storage.get_telemetry_history(limit=50)
             
             if not df.empty:
-                # Display metrics
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("📊 Total Records", len(df))
                 with col2:
                     st.metric("🖥️ Unique Devices", df['device_id'].nunique())
                 with col3:
-                    if 'timestamp' in df.columns:
-                        last_time = df['timestamp'].iloc[-1][:19] if len(df) > 0 else "N/A"
-                        st.metric("⏱️ Last Updated", last_time)
+                    last_time = df['timestamp'].iloc[-1][:19] if len(df) > 0 else "N/A"
+                    st.metric("⏱️ Last Updated", last_time)
                 
-                # Display recent data
                 st.subheader("Recent Telemetry Records")
                 display_df = df.tail(10)[['timestamp', 'device_name', 'baseline_traffic', 
                                            'current_traffic', 'is_anomaly']]
                 display_df.columns = ['Timestamp', 'Device', 'Baseline', 'Current', 'Anomaly']
                 st.dataframe(display_df, use_container_width=True)
                 
-                # Quick stats
                 anomaly_count = df['is_anomaly'].sum()
                 st.caption(f"📈 Summary: {anomaly_count} anomalous readings out of {len(df)} total records")
             else:
@@ -725,8 +894,8 @@ class IntegratedDashboard:
                 "Device": anomaly['device_name'],
                 "Layer": anomaly['layer'].upper(),
                 "Category": category.replace('_', ' ').title(),
-                "Severity": anomaly['severity'].upper(),
-                "Detection": "🔴 Rule",
+                "Severity": f"🔴 {anomaly['severity'].upper()}",
+                "Detection": "Rule",
                 "Details": anomaly['description'][:50],
                 "Reason": "Threshold exceeded"
             })
@@ -738,54 +907,89 @@ class IntegratedDashboard:
                 "Device": anomaly['device_name'],
                 "Layer": "N/A",
                 "Category": category.replace('_', ' ').title(),
-                "Severity": "ML",
-                "Detection": "🤖 ML",
+                "Severity": "🤖 ML",
+                "Detection": "ML",
                 "Details": f"Score: {anomaly.get('anomaly_score', 0):.2f}",
                 "Reason": "Isolation Forest outlier detection"
             })
         
-        # GNN anomalies (with detailed reason)
+        # GNN anomalies
         for anomaly in st.session_state.gnn_anomalies:
             category = st.session_state.fingerprinter.get_device_category(anomaly['device_id']) if st.session_state.fingerprinter else "unknown"
             anomaly_data.append({
                 "Device": anomaly['device_name'],
                 "Layer": anomaly.get('layer', 'N/A').upper(),
                 "Category": category.replace('_', ' ').title(),
-                "Severity": anomaly.get('severity', 'MEDIUM'),
-                "Detection": "🕸️ GNN",
+                "Severity": "🕸️ GNN",
+                "Detection": "GNN",
                 "Details": f"Spike: {anomaly.get('spike_ratio', 0)}x | Neighbor: {anomaly.get('neighbor_avg_spike', 0)}x",
                 "Reason": anomaly.get('reason', 'GNN detection')
             })
         
         df = pd.DataFrame(anomaly_data)
         
+        def color_severity(val):
+            if 'CRITICAL' in str(val):
+                return 'color: #ff4444; font-weight: bold'
+            elif 'HIGH' in str(val):
+                return 'color: #ff8800; font-weight: bold'
+            return ''
+        
         def color_detection(val):
-            if 'Rule' in str(val):
+            if val == 'Rule':
                 return 'background-color: #ffcccc'
-            elif 'ML' in str(val):
+            elif val == 'ML':
                 return 'background-color: #e6ccff'
-            elif 'GNN' in str(val):
+            elif val == 'GNN':
                 return 'background-color: #ffe6cc'
             return ''
         
-        st.dataframe(
-            df.style.applymap(color_detection, subset=['Detection']),
-            use_container_width=True,
-            height=400
-        )
+        styled_df = df.style.applymap(color_severity, subset=['Severity'])
+        styled_df = styled_df.applymap(color_detection, subset=['Detection'])
+        
+        st.dataframe(styled_df, use_container_width=True, height=400)
     
     def run(self):
         """Main dashboard loop"""
         st.set_page_config(
-            page_title="NetGraphIQ - Complete Network Intelligence",
+            page_title="NetGraphIQ - Intelligent Network Monitor",
             page_icon="📡",
             layout="wide",
             initial_sidebar_state="expanded"
         )
         
-        st.title("📡 NetGraphIQ: Complete Network Intelligence Platform")
-        st.markdown("*Multi-Layer Detection: Rule-Based · ML (Isolation Forest) · GNN (Graph Neural Network) · Live Packet Flow*")
-        st.divider()
+        # Custom CSS for modern styling
+        st.markdown("""
+        <style>
+        .stApp {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        .main-header {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Title with modern styling
+        st.markdown("""
+        <div class="main-header">
+            <h1 style="color: white; margin: 0;">📡 NetGraphIQ: Complete Network Intelligence Platform</h1>
+            <p style="color: white; margin: 5px 0 0 0; opacity: 0.9;">
+                Multi-Layer Detection: Rule-Based · ML (Isolation Forest) · GNN (Graph Neural Network) · Live Packet Flow
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
         if not st.session_state.network_generated:
             with st.spinner("Initializing network intelligence system..."):
@@ -804,46 +1008,46 @@ class IntegratedDashboard:
         col_left, col_right = st.columns([1.2, 0.8])
         
         with col_left:
-            st.subheader("🌐 Network Topology with Live Packet Flow")
-            fig_graph = self.draw_network_graph()
+            st.markdown("### 🌐 Hierarchical Network Topology")
+            fig_graph = self.draw_network_graph_hierarchical()
             if fig_graph:
                 st.pyplot(fig_graph)
         
         with col_right:
-            st.subheader("📡 Live Packet Flow Metrics")
+            st.markdown("### 📡 Live Packet Flow Metrics")
             self.draw_packet_flow_metrics()
             
-            st.subheader("📊 Real-time Traffic Analysis")
+            st.markdown("### 📊 Real-time Traffic Analysis")
             fig_traffic = self.draw_traffic_heatmap()
             if fig_traffic:
                 st.pyplot(fig_traffic)
         
         # Metrics row
-        st.divider()
+        st.markdown("---")
         self.render_metrics()
         
-        # Fingerprinting insights (NEW)
+        # Fingerprinting insights
         self.render_fingerprint_insights()
         
-        # Detection summary (NEW)
+        # Detection summary
         self.render_detection_summary()
         
         # Root cause section
-        st.divider()
+        st.markdown("---")
         self.render_root_cause()
         
         # Anomaly table
-        st.subheader("🚨 Multi-Layer Anomaly Detection Results")
+        st.markdown("### 🚨 Multi-Layer Anomaly Detection Results")
         self.render_anomaly_table()
         
-        # Telemetry Storage Section (NEW)
+        # Telemetry Storage Section
         self.render_telemetry_storage()
         
         # Footer
-        st.divider()
+        st.markdown("---")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.caption(f"📡 NetGraphIQ v4.0 | Last update: {st.session_state.last_update.strftime('%H:%M:%S')}")
+            st.caption(f"📡 NetGraphIQ v5.0 | Last update: {st.session_state.last_update.strftime('%H:%M:%S')}")
         with col2:
             if attack_mode:
                 st.caption("⚠️ Attack Mode: ACTIVE")
