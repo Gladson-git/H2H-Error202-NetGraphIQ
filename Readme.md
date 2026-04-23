@@ -10,7 +10,7 @@ Problem Statement :
         2.Identify relationships between devices
         3.Detect abnormal behavior such as traffic spikes, rogue devices, or failures
 
-      Existing solutions often rely on manual configuration or lack intelligent insights, resulting in delayed detection and increased operational risk
+      Existing solutions often rely on manual configuration or lack intelligent insights, resulting in delayed detection and increased operational risk.
 
 Proposed Solution :
 
