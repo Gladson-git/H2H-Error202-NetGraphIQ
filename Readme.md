@@ -22,52 +22,70 @@ that goes beyond monitoring — it understands and explains network behavior.
 + NetGraphIQ:
 + Detect → Analyze → Explain → Predict → Visualize
 
-👉 Moves from Reactive Monitoring → Autonomous Intelligence
+👉 Moves from Reactive Monitoring → Autonomous Intellige
+
 
 🔍 Core Capabilities
-🧩 Multi-Layer Detection Engine
-⚡ Rule-Based (Instant threshold alerts)
-🧠 ML-Based (Isolation Forest anomalies)
-🔗 GNN-Based (Graph-aware anomaly propagation)
+  🧩 Multi-Layer Detection Engine
+  ⚡ Rule-Based (Instant threshold alerts)
+  🧠 ML-Based (Isolation Forest anomalies)
+  🔗 GNN-Based (Graph-aware anomaly propagation)
+
+
 🌐 Intelligent Network Simulation
-Hierarchical topology (Core → Access → Endpoint)
-Real-time packet flow
-Dynamic anomaly injection
+  Hierarchical topology (Core → Access → Endpoint)
+  Real-time packet flow
+  Dynamic anomaly injection
+
+
 🧠 Root Cause Intelligence
-🎯 Identifies primary anomaly source
-🔗 Tracks propagation path
-📊 Calculates impact score
+  🎯 Identifies primary anomaly source
+  🔗 Tracks propagation path
+  📊 Calculates impact score
+
 📡 Telemetry Intelligence
-Continuous data ingestion
-Historical + live anomaly tracking
-Device-level behavioral patterns
+  Continuous data ingestion
+  Historical + live anomaly tracking
+  Device-level behavioral patterns
+
 🧬 Device Fingerprinting
-Smart Devices
-Sensors
-Cameras
-Low Power IoT
+  Smart Devices
+  Sensors
+  Cameras
+  Low Power IoT
+
+
 🧠 System Flow
 Telemetry → Detection → Graph Intelligence → Root Cause → Visualization
+
+
 🔬 Detection Intelligence
-Layer	Engine	Capability
-⚡ Rule	Threshold	Instant alerts
-🧠 ML	Isolation Forest	Outlier detection
-🔗 GNN	Graph Learning	Propagation detection
+Layer     	  Engine    	       Capability
+⚡ Rule	    Threshold	         Instant alerts
+🧠 ML	    Isolation Forest	   Outlier detection
+🔗 GNN	  Graph Learning	     Propagation detection
+
+
+
 🌐 Network Intelligence Features
-🔥 Traffic spike detection
-🔗 Graph-based anomaly tracking
-🧭 Propagation path mapping
-⚠️ Severity classification
-📡 Live packet animation
-🎨 Dashboard Experience
+ 🔥 Traffic spike detection
+ 🔗 Graph-based anomaly tracking
+ 🧭 Propagation path mapping
+ ⚠️ Severity classification
+ 📡 Live packet animation
+
+ 🎨 Dashboard Experience
 
 ✨ Designed for clarity + intelligence
 
-🌌 3D Network Visualization
-📊 Real-time traffic insights
-📈 System metrics
-🔍 Deep anomaly inspection
-📁 Telemetry explorer
+ 🌌 3D Network Visualization
+ 📊 Real-time traffic insights
+ 📈 System metrics
+ 🔍 Deep anomaly inspection
+ 📁 Telemetry explorer
+
+
+
 🧪 Attack Simulation
 
 Simulate real-world threats:
@@ -77,6 +95,7 @@ Simulate real-world threats:
 🧠 Behavioral anomalies
 
 👉 Test system robustness in real-time
+
 
 🧱 Project Architecture
 NetGraphIQ/
@@ -94,39 +113,37 @@ NetGraphIQ/
 ├── data/
 ├── tests/
 ├── configs/
+
+
+
 ⚙️ Tech Stack
-Layer	Stack
-Backend	Python
-ML	Scikit-learn
-Graph AI	Custom GNN
-Visualization	Streamlit + Graph
-Data	CSV / Telemetry Engine
+Layer	             Stack
+Backend          	Python
+ML	              Scikit-learn
+Graph             AI	Custom GNN
+Visualization	    Streamlit + Graph
+Data	            CSV / Telemetry Engine
+
+
+
 🚀 Quick Start
-git clone https://github.com/your-username/NetGraphIQ.git
-cd NetGraphIQ
+git clone [https://github.com/your-username/NetGraphIQ.git](https://github.com/Gladson-git/H2H-Error202-NetGraphIQ)
+cd H2H-Error202-NetGraphIQ
 pip install -r requirements.txt
-python app/main.py
-streamlit run ui/dashboard.py
-📊 Example Insights
-🔴 Root Cause: Access-Switch-C2-2
-📈 Traffic Spike: 3.6x baseline
-🔗 Propagation: Switch → Core → Endpoint
-⚠️ Impact: 8 devices affected
-🧠 Future Roadmap
-Deep Learning GNN (PyTorch Geometric)
-Real network integration (SNMP / NetFlow)
-Predictive anomaly intelligence
-Full WebGL 3D dashboard
+streamlit run run_integrated.py
+
+
 🤝 Contribution
 
-We welcome contributions 🚀
-Fork → Improve → PR
+Gladson K 
+Rahul Balan
+
 
 📜 License
 
-MIT License
+  MIT License
 
 💡 Final Thought
 
-NetGraphIQ represents the shift from
-network monitoring → network intelligence
+  NetGraphIQ represents the shift from
+  network monitoring → network intelligence
