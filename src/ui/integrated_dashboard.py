@@ -8,6 +8,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
 from datetime import datetime
 import random
 import time
@@ -50,7 +52,21 @@ class PacketFlowSimulator:
         if not self.graph or self.graph.number_of_edges() == 0:
             return
         
-        num_flows = random.randint(5, 12) if attack_mode else random.randint(3, 8)
+        current_time = time.time()
+        expired_packets = [
+            flow_id for flow_id, pos in self.packet_positions.items()
+            if current_time - pos['start_time'] >= pos['duration']
+        ]
+        for flow_id in expired_packets:
+            del self.packet_positions[flow_id]
+
+        self.active_edges = {
+            edge: data for edge, data in self.active_edges.items()
+            if current_time - data['start_time'] < data['duration']
+            and any(pos['edge'] == edge for pos in self.packet_positions.values())
+        }
+
+        num_flows = random.randint(4, 8) if attack_mode else random.randint(2, 5)
         
         for _ in range(num_flows):
             edge = random.choice(list(self.graph.edges()))
@@ -62,16 +78,16 @@ class PacketFlowSimulator:
             
             if is_anomaly_edge:
                 intensity = random.uniform(0.8, 1.0)
-                duration = 0.8 if attack_mode else 0.6
+                duration = random.uniform(7.0, 10.0) if attack_mode else random.uniform(8.0, 12.0)
                 packet_size = random.randint(100, 500)
             else:
                 intensity = random.uniform(0.3, 0.7)
-                duration = 0.4 if attack_mode else 0.3
+                duration = random.uniform(7.0, 10.5) if attack_mode else random.uniform(8.5, 13.0)
                 packet_size = random.randint(50, 200)
             
             self.active_edges[edge] = {
                 'intensity': intensity,
-                'start_time': time.time(),
+                'start_time': current_time,
                 'duration': duration,
                 'packet_size': packet_size,
                 'flow_id': self.flow_counter
@@ -80,27 +96,15 @@ class PacketFlowSimulator:
             self.packet_positions[self.flow_counter] = {
                 'edge': edge,
                 'progress': 0.0,
-                'speed': random.uniform(0.5, 1.5)
+                'speed': random.uniform(0.72, 1.08),
+                'start_time': current_time,
+                'duration': duration,
+                'start_offset': random.uniform(0.0, 0.78)
             }
-        
-        current_time = time.time()
-        expired = []
-        
-        for flow_id, flow_data in self.active_edges.items():
-            if current_time - flow_data['start_time'] >= flow_data['duration']:
-                expired.append(flow_id)
-        
-        for edge in expired:
-            del self.active_edges[edge]
-            to_remove = [fid for fid, pos in self.packet_positions.items() 
-                        if pos['edge'] == edge]
-            for fid in to_remove:
-                del self.packet_positions[fid]
-        
+
         for flow_id, pos in self.packet_positions.items():
-            pos['progress'] += pos['speed'] * 0.05
-            if pos['progress'] >= 1.0:
-                pos['progress'] = 0.0
+            elapsed = current_time - pos['start_time']
+            pos['progress'] = (pos['start_offset'] + (elapsed / pos['duration']) * pos['speed']) % 1.0
     
     def get_edge_style(self, edge: Tuple) -> Tuple[str, float, float, int]:
         """Get edge style based on active flows and anomalies"""
@@ -108,16 +112,16 @@ class PacketFlowSimulator:
             flow_count = self.edge_flow_count.get(edge, 0)
             
             if flow_count > 10:
-                return '#FF4500', 5.0, 0.95, flow_count
+                return '#DC2626', 4.0, 0.9, flow_count
             elif flow_count > 5:
-                return '#FF8C00', 4.0, 0.9, flow_count
+                return '#D97706', 3.2, 0.85, flow_count
             else:
-                return '#FFA500', 3.5, 0.85, flow_count
+                return '#2563EB', 2.6, 0.78, flow_count
         
         if edge[0] in self.anomaly_ids or edge[1] in self.anomaly_ids:
-            return '#E74C3C', 2.5, 0.8, 0
+            return '#DC2626', 2.2, 0.78, 0
         
-        return '#95A5A6', 1.2, 0.5, 0
+        return '#4B5563', 1.1, 0.55, 0
     
     def get_flow_statistics(self) -> Dict:
         return {
@@ -164,6 +168,11 @@ class IntegratedDashboard:
             st.session_state.gnn_anomalies = []
             st.session_state.simulate_attack = False
             st.session_state.attack_type = AttackType.NONE
+            st.session_state.sidebar_collapsed = False
+            st.session_state.show_anomalies = True
+            st.session_state.show_animation = True
+            st.session_state.auto_refresh = True
+            st.session_state.refresh_rate = 3
     
     def _get_layer_level(self, layer: str) -> int:
         """Get vertical level for hierarchical layout"""
@@ -388,7 +397,8 @@ class IntegratedDashboard:
         if not st.session_state.graph:
             return None
         
-        fig, ax = plt.subplots(figsize=(14, 10), facecolor='#F5F7FA')
+        fig, ax = plt.subplots(figsize=(14, 10), facecolor='#111827')
+        ax.set_facecolor('#111827')
         
         # Calculate hierarchical positions
         pos = self._calculate_hierarchical_positions(st.session_state.graph)
@@ -406,7 +416,7 @@ class IntegratedDashboard:
             # Thicker edges for anomaly connections
             if edge[0] in rule_anomaly_ids or edge[1] in rule_anomaly_ids:
                 width = width + 1.5
-                color = '#E74C3C'
+                color = '#DC2626'
             
             nx.draw_networkx_edges(
                 st.session_state.graph, pos,
@@ -428,33 +438,22 @@ class IntegratedDashboard:
                         t = packet['progress']
                         px = x0 + t * (x1 - x0)
                         py = y0 + t * (y1 - y0)
-                        ax.scatter(px, py, c='#FFD700', s=60, zorder=5, 
-                                  edgecolors='black', linewidths=1.5)
+                        ax.scatter(px, py, c='#60A5FA', s=42, zorder=5,
+                                  edgecolors='#0B0F14', linewidths=1)
         
         # Draw nodes with different colors based on detection method
         for node in st.session_state.graph.nodes():
             # Determine node style
             if node == root_cause_id:
-                color, size, edgecolor, linewidth = '#FF6B6B', 800, 'darkred', 3.5  # Root cause - larger, glow
+                color, size, edgecolor, linewidth = '#DC2626', 760, '#FCA5A5', 2.2
             elif node in rule_anomaly_ids:
-                color, size, edgecolor, linewidth = '#E74C3C', 600, 'darkred', 2.5
+                color, size, edgecolor, linewidth = '#B91C1C', 580, '#FCA5A5', 1.8
             elif node in ml_anomaly_ids:
-                color, size, edgecolor, linewidth = '#9B59B6', 550, 'purple', 2.5
+                color, size, edgecolor, linewidth = '#2563EB', 520, '#93C5FD', 1.6
             elif node in gnn_anomaly_ids:
-                color, size, edgecolor, linewidth = '#FF8C00', 550, 'darkorange', 2.5
+                color, size, edgecolor, linewidth = '#D97706', 520, '#FCD34D', 1.6
             else:
-                color, size, edgecolor, linewidth = '#4A90E2', 450, 'black', 1.5
-            
-            # Outer glow for root cause
-            if node == root_cause_id:
-                nx.draw_networkx_nodes(
-                    st.session_state.graph, pos,
-                    nodelist=[node],
-                    node_color=color,
-                    node_size=size + 150,
-                    alpha=0.3,
-                    ax=ax
-                )
+                color, size, edgecolor, linewidth = '#374151', 430, '#6B7280', 1.2
             
             nx.draw_networkx_nodes(
                 st.session_state.graph, pos,
@@ -490,6 +489,7 @@ class IntegratedDashboard:
             labels=labels,
             font_size=8,
             font_weight='bold',
+            font_color='#E5E7EB',
             ax=ax
         )
         
@@ -497,29 +497,301 @@ class IntegratedDashboard:
         layer_y_positions = {'EDGE': 3.0, 'CORE': 2.0, 'ACCESS': 1.0, 'ENDPOINT': 0.0}
         for layer, y in layer_y_positions.items():
             ax.text(-2.5, y, f"─── {layer} LAYER ───", fontsize=10, 
-                   fontweight='bold', color='#7F8C8D', alpha=0.7,
+                   fontweight='bold', color='#9CA3AF', alpha=0.8,
                    transform=ax.transData)
         
         ax.set_title("🌐 Hierarchical Network Topology with Multi-Layer Anomaly Detection", 
-                    fontsize=16, fontweight='bold', pad=20)
+                    fontsize=16, fontweight='bold', pad=20, color='#E5E7EB')
         ax.axis('off')
         
         # Enhanced Legend
         legend_elements = [
-            Patch(facecolor='#4A90E2', edgecolor='black', label='Normal Device'),
-            Patch(facecolor='#FF6B6B', edgecolor='darkred', label='🎯 Root Cause Device'),
-            Patch(facecolor='#E74C3C', edgecolor='darkred', label='🔴 Rule-based Anomaly'),
-            Patch(facecolor='#9B59B6', edgecolor='purple', label='🤖 ML Anomaly'),
-            Patch(facecolor='#FF8C00', edgecolor='darkorange', label='🕸️ GNN Anomaly'),
-            plt.Line2D([0], [0], color='#95A5A6', linewidth=2, label='Normal Connection'),
-            plt.Line2D([0], [0], color='#FFA500', linewidth=3.5, label='📡 Active Packet Flow'),
-            plt.Line2D([0], [0], color='#E74C3C', linewidth=3, label='⚠️ Connection to Anomaly'),
-            plt.Line2D([0], [0], color='#FFD700', marker='o', markersize=8, linestyle='None',
+            Patch(facecolor='#374151', edgecolor='#6B7280', label='Normal Device'),
+            Patch(facecolor='#DC2626', edgecolor='#FCA5A5', label='🎯 Root Cause Device'),
+            Patch(facecolor='#B91C1C', edgecolor='#FCA5A5', label='🔴 Rule-based Anomaly'),
+            Patch(facecolor='#2563EB', edgecolor='#93C5FD', label='🤖 ML Anomaly'),
+            Patch(facecolor='#D97706', edgecolor='#FCD34D', label='🕸️ GNN Anomaly'),
+            plt.Line2D([0], [0], color='#4B5563', linewidth=2, label='Normal Connection'),
+            plt.Line2D([0], [0], color='#2563EB', linewidth=3, label='📡 Active Packet Flow'),
+            plt.Line2D([0], [0], color='#DC2626', linewidth=3, label='⚠️ Connection to Anomaly'),
+            plt.Line2D([0], [0], color='#60A5FA', marker='o', markersize=7, linestyle='None',
                       label='💫 Moving Packets')
         ]
-        ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.02, 1), fontsize=9)
+        legend = ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.02, 1), fontsize=9)
+        legend.get_frame().set_facecolor('#111827')
+        legend.get_frame().set_edgecolor('#111827')
+        for text in legend.get_texts():
+            text.set_color('#E5E7EB')
         
         plt.tight_layout()
+        return fig
+
+    def draw_cyber_3d_topology(self):
+        """Draw a large interactive Plotly 3D topology model."""
+        if not st.session_state.graph:
+            return None
+
+        pos_2d = self._calculate_hierarchical_positions(st.session_state.graph)
+        xs = [p[0] for p in pos_2d.values()]
+        ys = [p[1] for p in pos_2d.values()]
+        x_mid = (min(xs) + max(xs)) / 2 if xs else 0
+        y_mid = (min(ys) + max(ys)) / 2 if ys else 0
+        x_span = max(max(xs) - min(xs), 1) if xs else 1
+        y_span = max(max(ys) - min(ys), 1) if ys else 1
+
+        pos = {}
+        for idx, (node, (x, y)) in enumerate(pos_2d.items()):
+            layer = st.session_state.graph.nodes[node].get('layer', 'endpoint')
+            z_base = self._get_layer_level(layer) * 0.46
+            pos[node] = (
+                (x - x_mid) / x_span * 6.8,
+                (y - y_mid) / y_span * 3.8,
+                z_base + np.sin(idx * 0.73) * 0.18,
+            )
+
+        rule_anomaly_ids = {a['device_id'] for a in st.session_state.anomalies}
+        ml_anomaly_ids = {a['device_id'] for a in st.session_state.ml_anomalies}
+        gnn_anomaly_ids = {a['device_id'] for a in st.session_state.gnn_anomalies}
+        root_cause_id = st.session_state.root_cause['device_id'] if st.session_state.root_cause else None
+
+        traces = []
+        theta = np.linspace(0, 2 * np.pi, 260)
+        for radius, color, alpha, z in [
+            (5.1, '#b77dff', 0.5, 0.58),
+            (3.75, '#22d3ee', 0.28, 0.78),
+        ]:
+            traces.append(go.Scatter3d(
+                x=radius * np.cos(theta),
+                y=1.05 * np.sin(theta),
+                z=np.full_like(theta, z),
+                mode="lines",
+                line=dict(color=color, width=5),
+                opacity=alpha,
+                hoverinfo="skip",
+                showlegend=False,
+            ))
+
+        for grid_x in np.linspace(-5.4, 5.4, 8):
+            traces.append(go.Scatter3d(
+                x=[grid_x, grid_x], y=[-2.6, 2.6], z=[-0.08, -0.08],
+                mode="lines",
+                line=dict(color='rgba(34,211,238,0.18)', width=2),
+                hoverinfo="skip",
+                showlegend=False,
+            ))
+        for grid_y in np.linspace(-2.6, 2.6, 6):
+            traces.append(go.Scatter3d(
+                x=[-5.4, 5.4], y=[grid_y, grid_y], z=[-0.08, -0.08],
+                mode="lines",
+                line=dict(color='rgba(34,211,238,0.18)', width=2),
+                hoverinfo="skip",
+                showlegend=False,
+            ))
+
+        edge_x, edge_y, edge_z = [], [], []
+        active_x, active_y, active_z = [], [], []
+        anomaly_edge_x, anomaly_edge_y, anomaly_edge_z = [], [], []
+        packet_paths = []
+        for edge in st.session_state.graph.edges():
+            color, width, alpha, flow_count = st.session_state.packet_simulator.get_edge_style(edge)
+            target = (edge_x, edge_y, edge_z)
+            if edge[0] in rule_anomaly_ids or edge[1] in rule_anomaly_ids:
+                target = (anomaly_edge_x, anomaly_edge_y, anomaly_edge_z)
+            elif edge in st.session_state.packet_simulator.active_edges or \
+                 (edge[1], edge[0]) in st.session_state.packet_simulator.active_edges:
+                target = (active_x, active_y, active_z)
+
+            x0, y0, z0 = pos[edge[0]]
+            x1, y1, z1 = pos[edge[1]]
+            target[0].extend([x0, x1, None])
+            target[1].extend([y0, y1, None])
+            target[2].extend([z0, z1, None])
+
+            if edge in st.session_state.packet_simulator.active_edges or \
+               (edge[1], edge[0]) in st.session_state.packet_simulator.active_edges:
+                for flow_id, packet in st.session_state.packet_simulator.packet_positions.items():
+                    if packet['edge'] != edge and packet['edge'] != (edge[1], edge[0]):
+                        continue
+
+                    if packet['edge'] == (edge[1], edge[0]):
+                        sx, sy, sz = x1, y1, z1
+                        ex, ey, ez = x0, y0, z0
+                    else:
+                        sx, sy, sz = x0, y0, z0
+                        ex, ey, ez = x1, y1, z1
+
+                    packet_paths.append({
+                        "progress": packet['progress'],
+                        "speed": packet.get('speed', 1.0),
+                        "sx": sx, "sy": sy, "sz": sz,
+                        "ex": ex, "ey": ey, "ez": ez,
+                    })
+
+        def build_packet_visuals(progress_offset: float = 0.0) -> Dict[str, List[float]]:
+            visuals = {
+                "head_x": [], "head_y": [], "head_z": [],
+                "glow_x": [], "glow_y": [], "glow_z": [],
+                "trail_x": [], "trail_y": [], "trail_z": [],
+                "segment_x": [], "segment_y": [], "segment_z": [],
+            }
+
+            for packet in packet_paths:
+                sx, sy, sz = packet["sx"], packet["sy"], packet["sz"]
+                ex, ey, ez = packet["ex"], packet["ey"], packet["ez"]
+                t = (packet["progress"] + progress_offset * packet["speed"]) % 1.0
+
+                px = sx + t * (ex - sx)
+                py = sy + t * (ey - sy)
+                pz = sz + t * (ez - sz)
+                visuals["head_x"].append(px)
+                visuals["head_y"].append(py)
+                visuals["head_z"].append(pz + 0.035)
+                visuals["glow_x"].append(px)
+                visuals["glow_y"].append(py)
+                visuals["glow_z"].append(pz + 0.035)
+
+                segment_start = max(0.0, t - 0.09)
+                visuals["segment_x"].extend([sx + segment_start * (ex - sx), px, None])
+                visuals["segment_y"].extend([sy + segment_start * (ey - sy), py, None])
+                visuals["segment_z"].extend([sz + segment_start * (ez - sz) + 0.025, pz + 0.035, None])
+
+                for trail_step in (0.07, 0.14, 0.21):
+                    trail_t = max(0.0, t - trail_step)
+                    visuals["trail_x"].append(sx + trail_t * (ex - sx))
+                    visuals["trail_y"].append(sy + trail_t * (ey - sy))
+                    visuals["trail_z"].append(sz + trail_t * (ez - sz) + 0.025)
+
+            return visuals
+
+        packet_visuals = build_packet_visuals()
+
+        traces.extend([
+            go.Scatter3d(
+                x=edge_x, y=edge_y, z=edge_z,
+                mode="lines",
+                line=dict(color='rgba(34,211,238,0.32)', width=3),
+                hoverinfo="skip",
+                showlegend=False,
+            ),
+            go.Scatter3d(
+                x=active_x, y=active_y, z=active_z,
+                mode="lines",
+                line=dict(color='rgba(245,158,11,0.78)', width=6),
+                hoverinfo="skip",
+                showlegend=False,
+            ),
+            go.Scatter3d(
+                x=anomaly_edge_x, y=anomaly_edge_y, z=anomaly_edge_z,
+                mode="lines",
+                line=dict(color='rgba(255,63,143,0.9)', width=7),
+                hoverinfo="skip",
+                showlegend=False,
+            ),
+        ])
+
+        node_groups = {
+            "Normal Device": {"x": [], "y": [], "z": [], "text": [], "color": "#28e7ff", "size": 9},
+            "Root Cause": {"x": [], "y": [], "z": [], "text": [], "color": "#ff3f8f", "size": 16},
+            "Rule Anomaly": {"x": [], "y": [], "z": [], "text": [], "color": "#ff4d7d", "size": 13},
+            "ML Anomaly": {"x": [], "y": [], "z": [], "text": [], "color": "#b77dff", "size": 12},
+            "GNN Anomaly": {"x": [], "y": [], "z": [], "text": [], "color": "#f59e0b", "size": 12},
+        }
+        for node in st.session_state.graph.nodes():
+            if node == root_cause_id:
+                group = node_groups["Root Cause"]
+            elif node in rule_anomaly_ids:
+                group = node_groups["Rule Anomaly"]
+            elif node in ml_anomaly_ids:
+                group = node_groups["ML Anomaly"]
+            elif node in gnn_anomaly_ids:
+                group = node_groups["GNN Anomaly"]
+            else:
+                group = node_groups["Normal Device"]
+
+            x, y, z = pos[node]
+            name = st.session_state.graph.nodes[node].get('name', node)
+            if len(name) > 15:
+                name = name[:13] + ".."
+            group["x"].append(x)
+            group["y"].append(y)
+            group["z"].append(z)
+            group["text"].append(name)
+
+        for label, group in node_groups.items():
+            if not group["x"]:
+                continue
+            traces.append(go.Scatter3d(
+                x=group["x"], y=group["y"], z=group["z"],
+                mode="markers+text",
+                text=group["text"],
+                textposition="top center",
+                textfont=dict(color="#dffbff", size=11, family="JetBrains Mono, Fira Code, monospace"),
+                marker=dict(
+                    size=group["size"],
+                    color=group["color"],
+                    opacity=0.92,
+                    line=dict(color="#dffbff", width=1.2),
+                ),
+                hovertemplate="<b>%{text}</b><extra>" + label + "</extra>",
+                name=label,
+            ))
+
+        traces.append(go.Scatter3d(
+            x=packet_visuals["segment_x"], y=packet_visuals["segment_y"], z=packet_visuals["segment_z"],
+            mode="lines",
+            line=dict(color='rgba(212,246,255,0.72)', width=6),
+            opacity=0.62,
+            hoverinfo="skip",
+            name="Packet Motion",
+            showlegend=False,
+        ))
+        traces.append(go.Scatter3d(
+            x=packet_visuals["trail_x"], y=packet_visuals["trail_y"], z=packet_visuals["trail_z"],
+            mode="markers",
+            marker=dict(size=3.8, color="#7dd3fc", opacity=0.42),
+            hoverinfo="skip",
+            name="Packet Trail",
+            showlegend=False,
+        ))
+        traces.append(go.Scatter3d(
+            x=packet_visuals["glow_x"], y=packet_visuals["glow_y"], z=packet_visuals["glow_z"],
+            mode="markers",
+            marker=dict(size=12, color="#67e8f9", opacity=0.18),
+            hoverinfo="skip",
+            name="Packet Glow",
+            showlegend=False,
+        ))
+        traces.append(go.Scatter3d(
+            x=packet_visuals["head_x"], y=packet_visuals["head_y"], z=packet_visuals["head_z"],
+            mode="markers",
+            marker=dict(size=6.8, color="#f8fafc", opacity=0.94, line=dict(color="#22d3ee", width=1.4)),
+            hovertemplate="Packet in transit<extra></extra>",
+            name="Moving Packets",
+            showlegend=False,
+        ))
+
+        fig = go.Figure(data=traces)
+        fig.update_layout(
+            height=820,
+            margin=dict(l=0, r=0, t=8, b=0),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#dffbff", family="JetBrains Mono, Fira Code, monospace"),
+            showlegend=False,
+            scene=dict(
+                bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(visible=False, range=[-5.8, 5.8]),
+                yaxis=dict(visible=False, range=[-2.95, 2.95]),
+                zaxis=dict(visible=False, range=[-0.2, 2.15]),
+                aspectmode="manual",
+                aspectratio=dict(x=2.45, y=1.25, z=0.72),
+                camera=dict(
+                    eye=dict(x=1.15, y=-1.85, z=1.05),
+                    center=dict(x=0, y=0, z=0.18),
+                    up=dict(x=0, y=0, z=1),
+                ),
+            ),
+        )
         return fig
     
     def draw_packet_flow_metrics(self):
@@ -558,7 +830,7 @@ class IntegratedDashboard:
         if not st.session_state.devices:
             return None
         
-        fig, ax = plt.subplots(figsize=(10, 4), facecolor='#F5F7FA')
+        fig, ax = plt.subplots(figsize=(10, 4), facecolor='#111827')
         
         layer_traffic = {'edge': 0, 'core': 0, 'access': 0, 'endpoint': 0}
         layer_counts = {'edge': 0, 'core': 0, 'access': 0, 'endpoint': 0}
@@ -579,43 +851,97 @@ class IntegratedDashboard:
                   layer_traffic['access'], layer_traffic['endpoint']]
         
         anomaly_layers = {a['layer'] for a in st.session_state.anomalies}
-        colors = ['#E74C3C' if layer.lower() in anomaly_layers else '#4A90E2' 
+        colors = ['#DC2626' if layer.lower() in anomaly_layers else '#2563EB'
                   for layer in layers]
         
-        bars = ax.bar(layers, values, color=colors, alpha=0.8, edgecolor='black', linewidth=1)
-        ax.set_ylabel('Avg Traffic (pkts/sec)', fontsize=11)
-        ax.set_title('Network Layer Traffic Distribution', fontsize=13, fontweight='bold')
-        ax.set_facecolor('#F5F7FA')
+        bars = ax.bar(layers, values, color=colors, alpha=0.86, edgecolor='#1F2937', linewidth=1)
+        ax.set_ylabel('Avg Traffic (pkts/sec)', fontsize=11, color='#9CA3AF')
+        ax.set_title('Network Layer Traffic Distribution', fontsize=13, fontweight='bold', color='#E5E7EB')
+        ax.set_facecolor('#111827')
+        ax.tick_params(colors='#9CA3AF')
+        ax.grid(axis='y', color='#1F2937', linewidth=0.8, alpha=0.75)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
         
         for bar, value in zip(bars, values):
             ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 5,
-                   f'{value:.0f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+                   f'{value:.0f}', ha='center', va='bottom', fontsize=10, fontweight='bold', color='#E5E7EB')
         
         flow_stats = st.session_state.packet_simulator.get_flow_statistics()
         ax.text(0.98, 0.95, f"📡 Active Flows: {flow_stats['active_flows']}", 
                transform=ax.transAxes, ha='right', va='top',
-               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+               color='#E5E7EB',
+               bbox=dict(boxstyle='round', facecolor='#0B0F14', edgecolor='#0B0F14', alpha=0.92))
         
         plt.tight_layout()
         return fig
     
     def render_sidebar(self):
-        """Render modern sidebar controls with grouped sections"""
+        """Render collapsible sidebar controls with grouped sections"""
+        for key, value in {
+            "sidebar_collapsed": False,
+            "show_anomalies": True,
+            "show_animation": True,
+            "simulate_attack": False,
+            "auto_refresh": True,
+            "refresh_rate": 3,
+        }.items():
+            if key not in st.session_state:
+                st.session_state[key] = value
+
+        collapsed = st.session_state.sidebar_collapsed
+        state_class = "collapsed" if collapsed else "expanded"
+        toggle_icon = "»" if collapsed else "«"
+        st.sidebar.markdown(f'<span class="sidebar-state {state_class}"></span>', unsafe_allow_html=True)
+
+        if st.sidebar.button(toggle_icon, key="sidebar_toggle", help="Expand sidebar" if collapsed else "Collapse sidebar"):
+            st.session_state.sidebar_collapsed = not collapsed
+            st.rerun()
+
+        if collapsed:
+            if st.sidebar.button("G", key="generate_network_compact", help="Generate Network"):
+                self.generate_network()
+                st.rerun()
+
+            if st.sidebar.button("O", key="show_anomalies_compact", help="Show Anomalies"):
+                st.session_state.show_anomalies = not st.session_state.show_anomalies
+                st.rerun()
+
+            if st.sidebar.button("P", key="show_animation_compact", help="Live Packet Animation"):
+                st.session_state.show_animation = not st.session_state.show_animation
+                st.rerun()
+
+            if st.sidebar.button("!", key="attack_mode_compact", help="Simulate Attack Mode"):
+                st.session_state.simulate_attack = not st.session_state.simulate_attack
+                st.session_state.attack_type = AttackType.DDOS if st.session_state.simulate_attack else AttackType.NONE
+                st.rerun()
+
+            if st.sidebar.button("A", key="auto_refresh_compact", help="Auto Refresh"):
+                st.session_state.auto_refresh = not st.session_state.auto_refresh
+                st.rerun()
+
+            return (
+                st.session_state.show_anomalies,
+                st.session_state.show_animation,
+                st.session_state.simulate_attack,
+                st.session_state.auto_refresh,
+                st.session_state.refresh_rate if st.session_state.auto_refresh else None,
+            )
+
         st.sidebar.markdown("""
         <style>
         .sidebar-section {
-            padding: 10px 0;
-            border-bottom: 1px solid #e0e0e0;
-            margin-bottom: 10px;
+            padding: 12px 0;
+            margin-bottom: 12px;
         }
         </style>
         """, unsafe_allow_html=True)
         
-        st.sidebar.title("🎮 NetGraphIQ")
+        st.sidebar.title("CONTROL PANEL")
         
         # Network Section
         st.sidebar.markdown("### 🌐 Network")
-        if st.sidebar.button("🔄 Generate New Network", use_container_width=True, type="primary"):
+        if st.sidebar.button("🔄 Generate New Network", use_container_width=True, type="primary", help="Generate Network"):
             self.generate_network()
             st.rerun()
         
@@ -623,8 +949,8 @@ class IntegratedDashboard:
         
         # Display Section
         st.sidebar.markdown("### ⚙️ Display")
-        show_anomalies = st.sidebar.toggle("🔴 Show Anomalies", value=True)
-        show_animation = st.sidebar.toggle("✨ Live Packet Animation", value=True)
+        show_anomalies = st.sidebar.toggle("🔴 Show Anomalies", key="show_anomalies")
+        show_animation = st.sidebar.toggle("✨ Live Packet Animation", key="show_animation")
         
         st.sidebar.markdown("---")
         
@@ -632,7 +958,7 @@ class IntegratedDashboard:
         st.sidebar.markdown("### 🎯 Attack Simulation")
         simulate_attack = st.sidebar.toggle(
             "⚠️ Simulate Attack Mode",
-            value=False,
+            key="simulate_attack",
             help="Increases anomaly probability (30%) and traffic intensity (3.5-6x baseline)"
         )
         
@@ -653,19 +979,17 @@ class IntegratedDashboard:
         else:
             st.session_state.attack_type = AttackType.NONE
         
-        st.session_state.simulate_attack = simulate_attack
-        
         st.sidebar.markdown("---")
         
         # Refresh Section
         st.sidebar.markdown("### 🔄 Refresh")
-        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+        auto_refresh = st.sidebar.toggle("Auto Refresh", key="auto_refresh")
         
         if auto_refresh:
             refresh_rate = st.sidebar.select_slider(
                 "Refresh Rate",
                 options=[2, 3, 5, 10],
-                value=3
+                key="refresh_rate"
             )
         else:
             refresh_rate = None
@@ -673,110 +997,73 @@ class IntegratedDashboard:
         return show_anomalies, show_animation, simulate_attack, auto_refresh, refresh_rate
     
     def render_metrics(self):
-        """Render modern metric cards"""
-        st.markdown("### 📊 System Metrics")
-        
-        # Create styled metric cards using columns
+        """Render glass HUD metric strip."""
+        st.markdown('<div class="hud-section-title">SYSTEM METRICS</div>', unsafe_allow_html=True)
+
+        def metric_tile(value, label, color="#E5E7EB"):
+            st.markdown(f"""
+            <div class="metric-tile">
+                <h3 style="color: {color};">{value}</h3>
+                <p>{label}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
         col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-        
+
         with col1:
-            st.markdown("""
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                        padding: 15px; border-radius: 10px; text-align: center;">
-                <h3 style="color: white; margin: 0;">{}</h3>
-                <p style="color: white; margin: 0; opacity: 0.9;">🖥️ Devices</p>
-            </div>
-            """.format(len(st.session_state.devices) if st.session_state.devices else 0), unsafe_allow_html=True)
-        
+            metric_tile(len(st.session_state.devices) if st.session_state.devices else 0, "Devices")
+
         with col2:
-            st.markdown("""
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                        padding: 15px; border-radius: 10px; text-align: center;">
-                <h3 style="color: white; margin: 0;">{}</h3>
-                <p style="color: white; margin: 0; opacity: 0.9;">🔗 Connections</p>
-            </div>
-            """.format(len(st.session_state.connections) if st.session_state.connections else 0), unsafe_allow_html=True)
-        
+            metric_tile(len(st.session_state.connections) if st.session_state.connections else 0, "Connections")
+
         with col3:
-            anomaly_color = "#E74C3C" if len(st.session_state.anomalies) > 0 else "#27AE60"
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, {anomaly_color} 0%, #c0392b 100%); 
-                        padding: 15px; border-radius: 10px; text-align: center;">
-                <h3 style="color: white; margin: 0;">{len(st.session_state.anomalies)}</h3>
-                <p style="color: white; margin: 0; opacity: 0.9;">⚠️ Rule</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            color = "#DC2626" if len(st.session_state.anomalies) > 0 else "#2563EB"
+            metric_tile(len(st.session_state.anomalies), "Rule", color)
+
         with col4:
-            ml_color = "#9B59B6" if len(st.session_state.ml_anomalies) > 0 else "#27AE60"
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, {ml_color} 0%, #8e44ad 100%); 
-                        padding: 15px; border-radius: 10px; text-align: center;">
-                <h3 style="color: white; margin: 0;">{len(st.session_state.ml_anomalies)}</h3>
-                <p style="color: white; margin: 0; opacity: 0.9;">🤖 ML</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            metric_tile(len(st.session_state.ml_anomalies), "ML", "#2563EB")
+
         with col5:
-            gnn_color = "#FF8C00" if len(st.session_state.gnn_anomalies) > 0 else "#27AE60"
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, {gnn_color} 0%, #e67e22 100%); 
-                        padding: 15px; border-radius: 10px; text-align: center;">
-                <h3 style="color: white; margin: 0;">{len(st.session_state.gnn_anomalies)}</h3>
-                <p style="color: white; margin: 0; opacity: 0.9;">🕸️ GNN</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            color = "#D97706" if len(st.session_state.gnn_anomalies) > 0 else "#2563EB"
+            metric_tile(len(st.session_state.gnn_anomalies), "GNN", color)
+
         with col6:
             active_flows = len(st.session_state.packet_simulator.active_edges) if st.session_state.packet_simulator else 0
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); 
-                        padding: 15px; border-radius: 10px; text-align: center;">
-                <h3 style="color: white; margin: 0;">{active_flows}</h3>
-                <p style="color: white; margin: 0; opacity: 0.9;">📡 Active Flows</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            metric_tile(active_flows, "Active Flows", "#2563EB")
+
         with col7:
             attack_status = "ACTIVE" if st.session_state.simulate_attack else "INACTIVE"
-            attack_color = "#E74C3C" if st.session_state.simulate_attack else "#27AE60"
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, {attack_color} 0%, #c0392b 100%); 
-                        padding: 15px; border-radius: 10px; text-align: center;">
-                <h3 style="color: white; margin: 0; font-size: 14px;">{attack_status}</h3>
-                <p style="color: white; margin: 0; opacity: 0.9;">🎯 Attack</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # Second row - Health metrics
+            color = "#DC2626" if st.session_state.simulate_attack else "#9CA3AF"
+            metric_tile(attack_status, "Attack", color)
+
         st.markdown("---")
         col8, col9, col10, col11 = st.columns(4)
-        
+
         with col8:
             severity_counts = {}
             for a in st.session_state.anomalies:
                 severity_counts[a['severity']] = severity_counts.get(a['severity'], 0) + 1
             critical_count = severity_counts.get('critical', 0)
-            st.metric("🔴 Critical Alerts", critical_count, delta="URGENT" if critical_count > 0 else None)
-        
+            st.metric("Critical Alerts", critical_count, delta="URGENT" if critical_count > 0 else None)
+
         with col9:
             if st.session_state.root_cause:
-                st.metric("🎯 Root Cause", st.session_state.root_cause['device_name'][:20])
+                st.metric("Root Cause", st.session_state.root_cause['device_name'][:20])
             else:
-                st.metric("🎯 Root Cause", "None Detected")
-        
+                st.metric("Root Cause", "None Detected")
+
         with col10:
             total_anomalies = len(st.session_state.anomalies) + len(st.session_state.ml_anomalies) + len(st.session_state.gnn_anomalies)
             health_percent = max(0, 100 - (total_anomalies * 3))
-            st.metric("💚 Network Health", f"{health_percent}%")
-        
+            st.metric("Network Health", f"{health_percent}%")
+
         with col11:
             gnn_count = len(st.session_state.gnn_anomalies)
             if gnn_count > 0:
-                st.metric("🕸️ GNN Active", f"{gnn_count} detections", delta="Working")
+                st.metric("GNN Active", f"{gnn_count} detections", delta="Working")
             else:
-                st.metric("🕸️ GNN Status", "Standby", delta="Waiting")
-    
+                st.metric("GNN Status", "Standby", delta="Waiting")
+
     def render_fingerprint_insights(self):
         """Display device fingerprinting insights"""
         if not st.session_state.fingerprinter:
@@ -822,26 +1109,26 @@ class IntegratedDashboard:
             path_str = " → ".join(st.session_state.propagation_path[:5]) if st.session_state.propagation_path else "None"
             
             st.markdown(f"""
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                        padding: 20px; border-radius: 12px; margin: 10px 0; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-                <h3 style="color: white; margin: 0;">🎯 ROOT CAUSE ANALYSIS</h3>
-                <hr style="background: white; margin: 10px 0;">
-                <p style="color: white; margin: 5px 0 0 0; font-size: 18px;">
+            <div style="background: #111827;
+                        padding: 20px; border-radius: 8px; margin: 14px 0;">
+                <h3 style="color: #E5E7EB; margin: 0;">🎯 ROOT CAUSE ANALYSIS</h3>
+                <hr style="background: rgba(255,255,255,0.06); margin: 12px 0; border: none; height: 1px;">
+                <p style="color: #E5E7EB; margin: 5px 0 0 0; font-size: 18px;">
                     <strong>🚨 Primary Source:</strong> {rc['device_name']}
                 </p>
-                <p style="color: white; margin: 5px 0;">
+                <p style="color: #9CA3AF; margin: 5px 0;">
                     <strong>📍 Layer:</strong> {rc['layer'].upper()} | 
                     <strong>⚠️ Severity:</strong> {rc['severity'].upper()} |
                     <strong>📊 Spike Ratio:</strong> {rc['spike_ratio']}x |
                     <strong>🔗 Connections:</strong> {rc.get('connection_count', 'N/A')}
                 </p>
-                <p style="color: #FFE66D; margin: 10px 0 0 0; font-size: 14px;">
+                <p style="color: #9CA3AF; margin: 10px 0 0 0; font-size: 14px;">
                     <strong>💡 Impact Analysis:</strong> {rc.get('impact_analysis', 'Device is primary anomaly source')}
                 </p>
-                <p style="color: white; margin: 10px 0 0 0; font-size: 14px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px;">
+                <p style="color: #E5E7EB; margin: 10px 0 0 0; font-size: 14px; background: #0B0F14; padding: 10px; border-radius: 8px;">
                     <strong>🌊 Affected Path:</strong> {path_str}
                 </p>
-                <p style="color: #FFE66D; margin: 5px 0 0 0; font-size: 12px;">
+                <p style="color: #9CA3AF; margin: 8px 0 0 0; font-size: 12px;">
                     <strong>📊 Potential Impact Devices:</strong> {st.session_state.impact_devices}
                 </p>
             </div>
@@ -851,11 +1138,12 @@ class IntegratedDashboard:
                 st.success("✅ **No root cause detected** - Network operating within normal parameters")
     
     def render_telemetry_storage(self):
-        """Render collapsible telemetry storage section"""
+        """Render telemetry storage section"""
         if not st.session_state.storage:
             return
         
-        with st.expander("📁 Telemetry Storage (Recent Data)"):
+        st.markdown('<div class="hud-section-title telemetry-title">RECENT TELEMETRY STORAGE</div>', unsafe_allow_html=True)
+        with st.expander("", expanded=True):
             df = st.session_state.storage.get_telemetry_history(limit=50)
             
             if not df.empty:
@@ -930,18 +1218,18 @@ class IntegratedDashboard:
         
         def color_severity(val):
             if 'CRITICAL' in str(val):
-                return 'color: #ff4444; font-weight: bold'
+                return 'color: #DC2626; font-weight: bold'
             elif 'HIGH' in str(val):
-                return 'color: #ff8800; font-weight: bold'
+                return 'color: #D97706; font-weight: bold'
             return ''
         
         def color_detection(val):
             if val == 'Rule':
-                return 'background-color: #ffcccc'
+                return 'background-color: rgba(220, 38, 38, 0.14); color: #E5E7EB'
             elif val == 'ML':
-                return 'background-color: #e6ccff'
+                return 'background-color: rgba(37, 99, 235, 0.14); color: #E5E7EB'
             elif val == 'GNN':
-                return 'background-color: #ffe6cc'
+                return 'background-color: rgba(217, 119, 6, 0.14); color: #E5E7EB'
             return ''
         
         styled_df = df.style.applymap(color_severity, subset=['Severity'])
@@ -957,36 +1245,459 @@ class IntegratedDashboard:
             layout="wide",
             initial_sidebar_state="expanded"
         )
+
+        collapsed = st.session_state.get("sidebar_collapsed", False)
+        shell_class = "shell-collapsed" if collapsed else "shell-expanded"
         
-        # Custom CSS for modern styling
+        # Custom CSS for dark, minimal dashboard styling
         st.markdown("""
         <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg: #020713;
+            --panel: rgba(7, 28, 46, 0.76);
+            --panel-strong: rgba(8, 42, 64, 0.92);
+            --sidebar: rgba(5, 24, 39, 0.86);
+            --text: #dffbff;
+            --muted: #79b8c8;
+            --accent: #22d3ee;
+            --accent-hover: #58f3ff;
+            --danger: #ff3f8f;
+            --amber: #f59e0b;
+        }
+
         .stApp {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            background:
+                radial-gradient(circle at 52% 10%, rgba(34,211,238,0.18), transparent 24%),
+                radial-gradient(circle at 0% 48%, rgba(126,58,242,0.23), transparent 31%),
+                linear-gradient(rgba(34,211,238,0.09) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(34,211,238,0.09) 1px, transparent 1px),
+                var(--bg);
+            background-size: auto, auto, 74px 74px, 74px 74px, auto;
+            color: var(--text);
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            line-height: 1.6;
         }
+
+        .stApp::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background:
+                linear-gradient(90deg, rgba(2,7,19,0.1), transparent 18%, transparent 82%, rgba(2,7,19,0.55)),
+                repeating-linear-gradient(0deg, rgba(255,255,255,0.03), rgba(255,255,255,0.03) 1px, transparent 1px, transparent 5px);
+            z-index: 0;
+        }
+
+        .stApp * {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            letter-spacing: 0;
+        }
+
+        .stale,
+        [data-stale="true"],
+        [data-stale="true"] > *,
+        [data-testid="stAppViewContainer"] .stale,
+        [data-testid="stAppViewContainer"] [data-stale="true"],
+        [data-testid="stElementContainer"].stale,
+        [data-testid="stElementContainer"][data-stale="true"],
+        [data-testid="stVerticalBlock"].stale,
+        [data-testid="stVerticalBlock"][data-stale="true"],
+        div[data-testid="stExpander"][data-stale="true"],
+        div[data-testid="stExpander"] details,
+        div[data-testid="stExpander"] summary {
+            opacity: 1 !important;
+            filter: none !important;
+            transition: none !important;
+        }
+
+        .block-container {
+            max-width: none;
+            padding-top: 0.65rem;
+            padding-left: 1.35rem;
+            padding-right: 1.35rem;
+        }
+
+        [data-testid="stSidebar"],
+        [data-testid="stSidebarContent"] {
+            background:
+                linear-gradient(180deg, rgba(10, 74, 99, 0.22), rgba(6, 20, 35, 0.92)),
+                var(--sidebar);
+            border: none;
+            box-shadow: inset -1px 0 0 rgba(34,211,238,0.28), 0 0 48px rgba(34,211,238,0.08);
+        }
+
+        section[data-testid="stSidebar"] {
+            width: 240px !important;
+            min-width: 240px !important;
+            max-width: 240px !important;
+            transition: width 0.3s ease, min-width 0.3s ease, max-width 0.3s ease;
+            overflow-x: hidden;
+            overflow-y: hidden;
+            flex: 0 0 240px !important;
+        }
+
+        section[data-testid="stSidebar"] > div,
+        [data-testid="stSidebarContent"] {
+            width: 240px !important;
+            min-width: 240px !important;
+            max-width: 240px !important;
+            transition: width 0.3s ease, min-width 0.3s ease, max-width 0.3s ease, padding 0.3s ease;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            max-height: 100vh;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(34,211,238,0.5) rgba(5,24,39,0.35);
+        }
+
+        [data-testid="stSidebarContent"]::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        [data-testid="stSidebarContent"]::-webkit-scrollbar-track {
+            background: rgba(5,24,39,0.35);
+        }
+
+        [data-testid="stSidebarContent"]::-webkit-scrollbar-thumb {
+            background: rgba(34,211,238,0.5);
+            border-radius: 999px;
+        }
+
+        section[data-testid="stSidebar"] button[title*="sidebar"],
+        section[data-testid="stSidebar"] button[aria-label*="sidebar"],
+        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
+        section[data-testid="stSidebar"] [data-testid="collapsedControl"] {
+            display: none !important;
+        }
+
+        section[data-testid="stSidebar"] button:has(span[class*="material-icons"]),
+        section[data-testid="stSidebar"] button:has(span[class*="material-symbols"]) {
+            font-size: 0 !important;
+        }
+
+        section[data-testid="stSidebar"] button:has(span[class*="material-icons"]) span,
+        section[data-testid="stSidebar"] button:has(span[class*="material-symbols"]) span {
+            display: none !important;
+        }
+
+        section[data-testid="stSidebar"]:has(.sidebar-state.collapsed) {
+            width: 70px !important;
+            min-width: 70px !important;
+            max-width: 70px !important;
+            flex: 0 0 70px !important;
+        }
+
+        section[data-testid="stSidebar"]:has(.sidebar-state.collapsed) > div,
+        section[data-testid="stSidebar"]:has(.sidebar-state.collapsed) [data-testid="stSidebarContent"] {
+            width: 70px !important;
+            min-width: 70px !important;
+            max-width: 70px !important;
+            padding-left: 8px !important;
+            padding-right: 8px !important;
+        }
+
+        section[data-testid="stSidebar"] + div,
+        [data-testid="stAppViewContainer"] > .main {
+            transition: margin-left 0.3s ease, width 0.3s ease;
+        }
+
+        [data-testid="stSidebarUserContent"] {
+            overflow: visible;
+            padding-bottom: 32px;
+        }
+
+        .sidebar {
+            width: 240px;
+            transition: width 0.3s ease;
+        }
+
+        .sidebar.collapsed {
+            width: 70px;
+        }
+
+        .main-content {
+            margin-left: 240px;
+            transition: margin-left 0.3s ease;
+        }
+
+        .sidebar.collapsed + .main-content {
+            margin-left: 70px;
+        }
+
+        section[data-testid="stSidebar"]:has(.sidebar-state.collapsed) .stButton > button {
+            width: 44px;
+            min-width: 44px;
+            max-width: 44px;
+            height: 44px;
+            min-height: 44px;
+            padding: 0;
+            margin: 6px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+        }
+
+        section[data-testid="stSidebar"]:has(.sidebar-state.collapsed) .stButton > button p {
+            color: var(--text);
+            font-size: 1rem;
+            line-height: 1;
+            margin: 0;
+            width: auto;
+        }
+
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] span {
+            color: var(--text);
+        }
+
+        [data-testid="stSidebar"] h1 {
+            font-size: 1.05rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+
+        [data-testid="stSidebar"] h3 {
+            color: #58f3ff;
+            font-size: 0.68rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            margin-top: 1.25rem;
+        }
+
+        [data-testid="stSidebar"] hr,
+        hr {
+            border: none;
+            height: 1px;
+            background: rgba(255,255,255,0.06);
+            margin: 1.2rem 0;
+        }
+
         .main-header {
-            text-align: center;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 15px;
-            margin-bottom: 20px;
+            padding: 20px 0 10px;
+            background: transparent;
+            margin-bottom: 6px;
         }
-        .metric-card {
-            background: white;
-            border-radius: 10px;
-            padding: 15px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: center;
+
+        .main-header h1 {
+            color: var(--text);
+            margin: 0;
+            font-size: clamp(1.7rem, 3vw, 3.1rem);
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            text-shadow: 0 0 24px rgba(34,211,238,0.22);
+        }
+
+        .main-header p {
+            color: var(--muted);
+            margin: 8px 0 0 0;
+            font-size: 0.92rem;
+        }
+
+        .topology-hero,
+        .topology-frame,
+        .chart-frame {
+            position: relative;
+            background: linear-gradient(180deg, rgba(8, 36, 58, 0.72), rgba(3, 12, 27, 0.86));
+            border: 1px solid rgba(34,211,238,0.42);
+            box-shadow: 0 0 28px rgba(34,211,238,0.13), inset 0 0 36px rgba(34,211,238,0.07);
+            padding: 8px;
+            margin: 8px 0 14px;
+            clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
+        }
+
+        [data-testid="stPlotlyChart"] {
+            min-height: 78vh;
+            background:
+                radial-gradient(circle at 50% 34%, rgba(34,211,238,0.12), transparent 30%),
+                linear-gradient(rgba(34,211,238,0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(34,211,238,0.08) 1px, transparent 1px);
+            background-size: auto, 68px 68px, 68px 68px;
+            border: 1px solid rgba(34,211,238,0.32);
+            box-shadow: inset 0 0 50px rgba(34,211,238,0.07), 0 0 30px rgba(34,211,238,0.1);
+        }
+
+        [data-testid="stTabs"] {
+            margin-top: 1.2rem;
+        }
+
+        [data-testid="stTabs"] [data-baseweb="tab-panel"] {
+            padding-top: 1.15rem;
+            min-height: 260px;
+            overflow: visible;
+        }
+
+        [data-testid="stTabs"] [role="tablist"] {
+            gap: 0.35rem;
+            border-bottom: 1px solid rgba(34,211,238,0.24);
+        }
+
+        [data-testid="stTabs"] [role="tab"] {
+            background: rgba(8, 36, 58, 0.72);
+            border: 1px solid rgba(34,211,238,0.24);
+            border-bottom: none;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            min-height: 50px;
+            padding: 0 14px;
+            display: flex;
+            align-items: center;
+            white-space: nowrap;
+        }
+
+        [data-testid="stTabs"] [aria-selected="true"] {
+            color: #dffbff;
+            background: rgba(34,211,238,0.16);
+            border-color: rgba(88,243,255,0.58);
+        }
+
+        .hud-section-title {
+            color: #58f3ff;
+            font-size: 0.76rem;
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+            margin: 8px 0 10px;
+            text-shadow: 0 0 12px rgba(34,211,238,0.45);
+        }
+
+        .metric-tile {
+            background: linear-gradient(180deg, rgba(13, 57, 79, 0.82), rgba(8, 21, 39, 0.86));
+            border: 1px solid rgba(34,211,238,0.32);
+            border-radius: 2px;
+            padding: 15px 13px;
+            text-align: left;
+            box-shadow: inset 0 0 22px rgba(34,211,238,0.08);
+        }
+
+        .metric-tile h3 {
+            margin: 0;
+            font-size: 1.55rem;
+            font-weight: 500;
+            text-shadow: 0 0 14px currentColor;
+        }
+
+        .metric-tile p {
+            color: var(--muted);
+            margin: 6px 0 0 0;
+            font-size: 0.72rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+        }
+
+        div[data-testid="stMetric"],
+        div[data-testid="stAlert"],
+        div[data-testid="stExpander"] {
+            background: var(--panel);
+            border: 1px solid rgba(34,211,238,0.22);
+            border-radius: 2px;
+            box-shadow: none;
+        }
+
+        div[data-testid="stExpander"] {
+            margin-top: 0.75rem;
+            margin-bottom: 2rem;
+            overflow: visible;
+        }
+
+        div[data-testid="stExpander"] details {
+            overflow: visible;
+        }
+
+        div[data-testid="stExpander"] summary {
+            display: none;
+        }
+
+        div[data-testid="stExpander"] summary p {
+            margin: 0;
+            line-height: 1.35;
+            color: var(--text);
+        }
+
+        div[data-testid="stExpanderDetails"] {
+            padding-top: 1rem;
+        }
+
+        div[data-testid="stMetric"] {
+            padding: 14px 16px;
+        }
+
+        div[data-testid="stMetricLabel"],
+        div[data-testid="stMetricDelta"] {
+            color: var(--muted);
+        }
+
+        div[data-testid="stMetricValue"],
+        h1, h2, h3, h4, h5, h6 {
+            color: var(--text);
+        }
+
+        p, label, span, .stMarkdown {
+            color: var(--muted);
+        }
+
+        .stButton > button,
+        [data-testid="stSidebar"] .stButton > button {
+            background: linear-gradient(180deg, rgba(34,211,238,0.18), rgba(34,211,238,0.06));
+            color: var(--text);
+            border: 1px solid rgba(34,211,238,0.35);
+            border-radius: 3px;
+            box-shadow: inset 0 0 18px rgba(34,211,238,0.09), 0 0 14px rgba(34,211,238,0.08);
+            transition: background 120ms ease, color 120ms ease;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+
+        .stButton > button:hover,
+        [data-testid="stSidebar"] .stButton > button:hover {
+            background: rgba(34,211,238,0.2);
+            color: var(--text);
+            border: 1px solid rgba(88,243,255,0.72);
+        }
+
+        .stButton > button[kind="primary"],
+        [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+            background: linear-gradient(180deg, rgba(34,211,238,0.32), rgba(34,211,238,0.12));
+            color: #dffbff;
+            border-color: rgba(88,243,255,0.8);
+        }
+
+        .stButton > button[kind="primary"]:hover,
+        [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+            background: var(--accent-hover);
+            color: #FFFFFF;
+        }
+
+        [data-testid="stSidebar"] .stButton > button:focus {
+            background: rgba(37, 99, 235, 0.15);
+            box-shadow: none;
+        }
+
+        [data-testid="stDataFrame"] {
+            background: var(--panel);
+            border: 1px solid rgba(34,211,238,0.25);
+        }
+
+        .stProgress > div > div > div > div {
+            background-color: var(--accent);
         }
         </style>
         """, unsafe_allow_html=True)
         
-        # Title with modern styling
+        # Title with minimal styling
         st.markdown("""
         <div class="main-header">
-            <h1 style="color: white; margin: 0;">📡 NetGraphIQ: Complete Network Intelligence Platform</h1>
-            <p style="color: white; margin: 5px 0 0 0; opacity: 0.9;">
-                Multi-Layer Detection: Rule-Based · ML (Isolation Forest) · GNN (Graph Neural Network) · Live Packet Flow
+            <h1>NetGraphIQ: Complete Network Intelligence Platform</h1>
+            <p>
+                Multi-Layer Detection: Rule-Based | ML (Isolation Forest) | GNN (Graph Neural Network) | Live Packet Flow
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -1004,44 +1715,44 @@ class IntegratedDashboard:
         if show_animation and st.session_state.packet_simulator:
             st.session_state.packet_simulator.update_flows(attack_mode)
         
-        # Main content - 2 columns
-        col_left, col_right = st.columns([1.2, 0.8])
-        
-        with col_left:
-            st.markdown("### 🌐 Hierarchical Network Topology")
-            fig_graph = self.draw_network_graph_hierarchical()
-            if fig_graph:
-                st.pyplot(fig_graph)
-        
-        with col_right:
-            st.markdown("### 📡 Live Packet Flow Metrics")
+        st.markdown('<div class="topology-hero">', unsafe_allow_html=True)
+        st.markdown('<div class="hud-section-title">MULTI-LAYER INTELLIGENCE MAP</div>', unsafe_allow_html=True)
+        fig_graph = self.draw_cyber_3d_topology()
+        if fig_graph:
+            st.plotly_chart(fig_graph, use_container_width=True, config={
+                "displayModeBar": False,
+                "scrollZoom": True,
+                "responsive": True,
+            })
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        metrics_tab, traffic_tab, detection_tab, intelligence_tab, storage_tab = st.tabs([
+            "System Metrics",
+            "Traffic Analysis",
+            "Detection Results",
+            "Intelligence",
+            "Telemetry Storage",
+        ])
+
+        with metrics_tab:
+            self.render_metrics()
             self.draw_packet_flow_metrics()
-            
-            st.markdown("### 📊 Real-time Traffic Analysis")
+
+        with traffic_tab:
             fig_traffic = self.draw_traffic_heatmap()
             if fig_traffic:
-                st.pyplot(fig_traffic)
-        
-        # Metrics row
-        st.markdown("---")
-        self.render_metrics()
-        
-        # Fingerprinting insights
-        self.render_fingerprint_insights()
-        
-        # Detection summary
-        self.render_detection_summary()
-        
-        # Root cause section
-        st.markdown("---")
-        self.render_root_cause()
-        
-        # Anomaly table
-        st.markdown("### 🚨 Multi-Layer Anomaly Detection Results")
-        self.render_anomaly_table()
-        
-        # Telemetry Storage Section
-        self.render_telemetry_storage()
+                st.pyplot(fig_traffic, use_container_width=True)
+
+        with detection_tab:
+            self.render_anomaly_table()
+
+        with intelligence_tab:
+            self.render_fingerprint_insights()
+            self.render_detection_summary()
+            self.render_root_cause()
+
+        with storage_tab:
+            self.render_telemetry_storage()
         
         # Footer
         st.markdown("---")
@@ -1057,9 +1768,8 @@ class IntegratedDashboard:
             total_anomalies = len(rule_anomalies) + len(ml_anomalies) + len(gnn_anomalies)
             st.caption(f"🚨 Total Alerts: {total_anomalies} (Rule: {len(rule_anomalies)}, ML: {len(ml_anomalies)}, GNN: {len(gnn_anomalies)})")
         
-        if auto_refresh and refresh_rate:
-            time.sleep(refresh_rate)
-            st.rerun()
+        # Keep the 3D model mounted. A full-page st.rerun() tears down the
+        # Plotly/WebGL scene, which causes the visible disappear/reappear flicker.
 
 
 def main():
