@@ -1,82 +1,132 @@
-NetGraphIQ: Network Topology Discovery & Behavioral Anomaly Detection
+🌌 NetGraphIQ — Autonomous Network Intelligence Platform
+🧠 Overview
 
-    Transforming network visibility through graph intelligence and real-time behavioral anomaly detection.
+NetGraphIQ is a next-generation AI-driven network intelligence system
+that goes beyond monitoring — it understands and explains network behavior.
 
-Problem Statement :
+✨ Built using Multi-Layer Detection + Graph Neural Intelligence
 
-   Intelligent Network Topology Discovery & Anomaly Detection :
-      Modern IoT and enterprise networks are highly dynamic, making it difficult for administrators to:
-        1.Understand real-time network topology
-        2.Identify relationships between devices
-        3.Detect abnormal behavior such as traffic spikes, rogue devices, or failures
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Streamlit-Dashboard-red?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/ML-IsolationForest-purple?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/GNN-GraphLearning-orange?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Network-Simulation-green?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/RealTime-Analytics-yellow?style=for-the-badge" />
+</p>
 
-      Existing solutions often rely on manual configuration or lack intelligent insights, resulting in delayed detection and increased operational risk.
+⚡ What Makes It Powerful?
++ Traditional Systems:
+- Monitor → Alert → Manual Debugging
 
-Proposed Solution :
++ NetGraphIQ:
++ Detect → Analyze → Explain → Predict → Visualize
 
-    NetGraphIQ is an intelligent system that:
-        1.Simulates a network environment with interconnected devices
-        2.Automatically discovers network topology using inferred signals (ARP/neighbor-based logic)
-        3.Models the network as a graph structure
-        4.Continuously generates and monitors telemetry data
-        5.Detects anomalies using rule-based and machine learning techniques
-        6.Provides real-time visualization and insights through an interactive dashboard
+👉 Moves from Reactive Monitoring → Autonomous Intelligence
 
-Key Features :
+🔍 Core Capabilities
+🧩 Multi-Layer Detection Engine
+⚡ Rule-Based (Instant threshold alerts)
+🧠 ML-Based (Isolation Forest anomalies)
+🔗 GNN-Based (Graph-aware anomaly propagation)
+🌐 Intelligent Network Simulation
+Hierarchical topology (Core → Access → Endpoint)
+Real-time packet flow
+Dynamic anomaly injection
+🧠 Root Cause Intelligence
+🎯 Identifies primary anomaly source
+🔗 Tracks propagation path
+📊 Calculates impact score
+📡 Telemetry Intelligence
+Continuous data ingestion
+Historical + live anomaly tracking
+Device-level behavioral patterns
+🧬 Device Fingerprinting
+Smart Devices
+Sensors
+Cameras
+Low Power IoT
+🧠 System Flow
+Telemetry → Detection → Graph Intelligence → Root Cause → Visualization
+🔬 Detection Intelligence
+Layer	Engine	Capability
+⚡ Rule	Threshold	Instant alerts
+🧠 ML	Isolation Forest	Outlier detection
+🔗 GNN	Graph Learning	Propagation detection
+🌐 Network Intelligence Features
+🔥 Traffic spike detection
+🔗 Graph-based anomaly tracking
+🧭 Propagation path mapping
+⚠️ Severity classification
+📡 Live packet animation
+🎨 Dashboard Experience
 
-    1.Automated topology discovery (ARP-inspired inference)
-    2.Graph-based network modeling using NetworkX
-    3.Real-time telemetry simulation and monitoring
-    4.Behavioral anomaly detection (traffic spikes, device failures, rogue activity)
-    5.Interactive dashboard with visual network representation
-    6.Event timeline and anomaly explanation system (planned enhancement)
+✨ Designed for clarity + intelligence
 
-System Architecture & Data Flow :
+🌌 3D Network Visualization
+📊 Real-time traffic insights
+📈 System metrics
+🔍 Deep anomaly inspection
+📁 Telemetry explorer
+🧪 Attack Simulation
 
-    Simulation Layer → Discovery Engine → Graph Builder → Telemetry Generator → Anomaly Detection → Dashboard
+Simulate real-world threats:
 
-Tech Stack :
+⚠️ MAC Spoofing
+🔥 Traffic Flooding
+🧠 Behavioral anomalies
 
-    Python
-    NetworkX (Graph Modeling)
-    Streamlit (Interactive Dashboard)
-    Scikit-learn (Anomaly Detection)
-    Pandas (Data Processing)
+👉 Test system robustness in real-time
 
-Project Structure :
-    src/
-    ├── core/            # Simulation, discovery, graph, telemetry logic
-    ├── detection/       # Anomaly detection engine
-    └── ui/              # Dashboard and visualization
+🧱 Project Architecture
+NetGraphIQ/
+│
+├── app/              # Entry points
+├── src/
+│   ├── network/
+│   ├── telemetry/
+│   ├── detection/
+│   ├── simulation/
+│   ├── intelligence/
+│   └── visualization/
+│
+├── ui/
+├── data/
+├── tests/
+├── configs/
+⚙️ Tech Stack
+Layer	Stack
+Backend	Python
+ML	Scikit-learn
+Graph AI	Custom GNN
+Visualization	Streamlit + Graph
+Data	CSV / Telemetry Engine
+🚀 Quick Start
+git clone https://github.com/your-username/NetGraphIQ.git
+cd NetGraphIQ
+pip install -r requirements.txt
+python app/main.py
+streamlit run ui/dashboard.py
+📊 Example Insights
+🔴 Root Cause: Access-Switch-C2-2
+📈 Traffic Spike: 3.6x baseline
+🔗 Propagation: Switch → Core → Endpoint
+⚠️ Impact: 8 devices affected
+🧠 Future Roadmap
+Deep Learning GNN (PyTorch Geometric)
+Real network integration (SNMP / NetFlow)
+Predictive anomaly intelligence
+Full WebGL 3D dashboard
+🤝 Contribution
 
-    data/                 # Telemetry and logs
-    docs/                 # Architecture diagrams
-    main.py               # Entry point
+We welcome contributions 🚀
+Fork → Improve → PR
 
-Setup Instructions :
+📜 License
 
-    1.Clone the repository:
-      git clone https://github.com/Gladson-git/H2H-Error202-NetGraphIQ
-      cd NetGraphIQ
+MIT License
 
-    2.Install dependencies:
-      pip install -r requirements.txt
+💡 Final Thought
 
-    3.Run the application:
-      python main.py
-
-Current Status :
-    Day 1 — Project initialization, architecture definition, and repository setup completed.
-
-
-Team Members :
-    Gladson K
-    Rahul Balan
-
-Deployment :
-    The application will be deployed and made accessible via a live link by the end of the build phase.
-
-Demo / Screenshots :
-    Visual demonstrations and a walkthrough video will be included once the system is fully functional.
-
-    
+NetGraphIQ represents the shift from
+network monitoring → network intelligence
